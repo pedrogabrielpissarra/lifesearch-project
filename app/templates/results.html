@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="pt-4">
+    <h2>Exoplanet Search Results</h2> {# Title made more specific #}
+    {% if report_links %}
+        <p class="lead">The following reports were generated successfully. Click the links to view them.</p>
+        <ul class="list-group">
+            {% for link in report_links %}
+                <li class="list-group-item">
+                    <a href="{{ link.url }}" target="_blank">{{ link.name }}</a>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <div class="alert alert-warning" role="alert">
+            No reports were generated. Please check the application logs for more details or try a new search.
+        </div>
+    {% endif %}
+
+    <div class="mt-4">
+        <a href="{{ url_for("index") }}" class="btn btn-secondary">New Search</a>
+    </div>
+</div>
+{% endblock %}
