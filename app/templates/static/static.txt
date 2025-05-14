@@ -1,1 +1,7 @@
-
+│   ├── static/
+│   │   ├── css/
+│   │   │   └── style.css (exemplo)
+│   │   ├── js/
+│   │   │   └── script.js (exemplo)
+│   │   └── images/
+│   │       └── logo.png (exemplo)
