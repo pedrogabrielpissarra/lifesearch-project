@@ -5,7 +5,7 @@ Esta é uma aplicação web Flask que permite aos usuários buscar informações
 ## Estrutura do Projeto
 
 ```
-/home/ubuntu/
+/lifesearch/
 ├── app/                           # Contém o código da aplicação Flask
 │   ├── __init__.py              # Inicializa a aplicação Flask, configura e registra rotas
 │   ├── forms.py                 # Define os formulários WTForms (PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm)
