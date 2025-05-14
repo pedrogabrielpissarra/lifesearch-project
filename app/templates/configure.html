@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="pt-4">
+    <h2>Configurar Pesos de Habitabilidade</h2>
+    <p class="lead">Ajuste os pesos (0.0 a 1.0) para cada fator usado nos cálculos de habitabilidade. Os valores padrão são 1.0 para fatores gerais e 0.25 para componentes PHI.</p>
+
+    <form method="POST" action="{{ url_for("configure") }}" novalidate>
+        {{ hab_form.hidden_tag() }}
+        <h3 class="mt-4">Pesos dos Fatores de Habitabilidade (ESI, SPH, etc.)</h3>
+        <div class="row">
+            {% for field_name, field_obj in hab_form._fields.items() %}
+                {% if field_name not in ["csrf_token", "submit_weights"] %}
+                    <div class="col-md-6 mb-3">
+                        {{ field_obj.label(class="form-label") }}
+                        {{ field_obj(class="form-control" ~ (" is-invalid" if field_obj.errors else ""), step="0.01") }}
+                        {% if field_obj.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in field_obj.errors %}
+                                    <span>{{ error }}</span>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+        <div class="d-grid gap-2 col-6 mx-auto mt-3">
+            {{ hab_form.submit_weights(class="btn btn-success btn-lg") }}
+        </div>
+    </form>
+
+    <hr class="my-5">
+
+    <form method="POST" action="{{ url_for("configure") }}" novalidate>
+        {{ phi_form.hidden_tag() }}
+        <h3 class="mt-4">Pesos dos Fatores PHI (Planetary Habitability Index)</h3>
+        <div class="row">
+            {% for field_name, field_obj in phi_form._fields.items() %}
+                {% if field_name not in ["csrf_token", "submit_phi_weights"] %}
+                    <div class="col-md-6 mb-3">
+                        {{ field_obj.label(class="form-label") }}
+                        {{ field_obj(class="form-control" ~ (" is-invalid" if field_obj.errors else ""), step="0.01") }}
+                        {% if field_obj.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in field_obj.errors %}
+                                    <span>{{ error }}</span>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+        <div class="d-grid gap-2 col-6 mx-auto mt-3">
+            {{ phi_form.submit_phi_weights(class="btn btn-info btn-lg") }}
+        </div>
+    </form>
+
+</div>
+{% endblock %}
