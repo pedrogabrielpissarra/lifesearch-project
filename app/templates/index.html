@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="pt-4">
+    <h2>Search Exoplanets</h2>
+    <!-- Mensagem atualizada -->
+    <p class="lead">Enter the names of the exoplanets you want to analyze. Type a name and press Enter or comma to add it as a tag. Start typing for suggestions.</p>
+        
+    <form method="POST" action="{{ url_for("index") }}" novalidate>
+        {{ form.hidden_tag() }}
+        <div class="mb-3">
+            {{ form.planet_names.label(class="form-label") }} {# Label comes from forms.py, already translated #}
+            {# O campo abaixo será transformado pelo Tagify. Dê um ID a ele. #}
+            {{ form.planet_names(id="planet-names-input", class="form-control" ~ (" is-invalid" if form.planet_names.errors else ""), rows=4) }}
+            {% if form.planet_names.errors %}
+                <div class="invalid-feedback">
+                    {% for error in form.planet_names.errors %}
+                        <span>{{ error }}</span> {# Error messages from validators in forms.py, already translated #}
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+        <div class="mb-3">
+            {{ form.parameter_overrides.label(class="form-label") }} {# Label from forms.py #}
+            <small class="form-text text-muted">(Optional. Format: PlanetName: param1=value1; param2=value2. One line per planet.)</small>
+            {{ form.parameter_overrides(class="form-control" ~ (" is-invalid" if form.parameter_overrides.errors else ""), rows=5) }}
+            {% if form.parameter_overrides.errors %}
+                <div class="invalid-feedback">
+                    {% for error in form.parameter_overrides.errors %}
+                        <span>{{ error }}</span> {# Error messages from validators in forms.py #}
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+        <div class="d-grid gap-2">
+            {{ form.submit(class="btn btn-primary btn-lg") }} {# Button text from forms.py #}
+        </div>
+    </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var input = document.getElementById('planet-names-input');
+
+    // Função debounce para evitar múltiplas chamadas AJAX enquanto o usuário digita
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    async function fetchPlanetSuggestions(query) {
+        if (query.length < 2) return []; 
+
+        tagify.loading(true); // Mostrar indicador de loading
+
+        try {
+            // A URL deve corresponder ao endpoint que você criará no Flask
+            const response = await fetch(`/api/planets/autocomplete?term=${encodeURIComponent(query)}`);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({})); // Tenta pegar JSON de erro
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorData.error || 'Unknown error'}`);
+            }
+            const data = await response.json(); 
+            // Espera-se que o endpoint retorne um array de objetos [{value: "Nome"}, ...] ou ["Nome1", "Nome2"]
+            return data; 
+        } catch (error) {
+            console.error("Failed to fetch planet suggestions:", error);
+            tagify.dropdown.hide(); // Esconder dropdown em caso de erro
+            return []; // Retorna array vazio em caso de erro
+        } finally {
+            tagify.loading(false); // Esconder indicador de loading
+        }
+    }
+
+    async function onInput(e) {
+        var value = e.detail.value; // o que foi digitado no input do Tagify
+        tagify.whitelist = null; // Limpa a whitelist antiga para recarregar as sugestões
+
+        // Não buscar se o valor for muito curto
+        if (value.length < 2) {
+            tagify.dropdown.hide(); // Esconde o dropdown
+            return;
+        }
+
+        try {
+            const suggestions = await fetchPlanetSuggestions(value);
+            if (suggestions && suggestions.length > 0) {
+                tagify.whitelist = suggestions; // Atualiza a whitelist com as novas sugestões
+                tagify.dropdown.show(value);    // Mostra dropdown com as sugestões
+            } else {
+                tagify.dropdown.hide(); // Esconde se não houver sugestões
+            }
+        } catch (err) {
+            console.error("Error updating Tagify whitelist:", err);
+            tagify.dropdown.hide(); // Esconde dropdown em caso de erro
+        }
+    }
+
+    var tagify = new Tagify(input, {
+        whitelist: [], // Começa vazio, será preenchido pela função onInput
+        dropdown: {
+            maxItems: 20,           // Número máximo de itens no dropdown
+            enabled: 0,             // Habilitar o dropdown ao digitar (0 para onInput)
+            closeOnSelect: true,    // Fechar o dropdown ao selecionar um item
+            highlightFirst: true    // Destacar o primeiro item da lista
+        },
+        originalInputValueFormat: valuesArr => valuesArr.map(item => item.value).join(','), // Envia como string separada por vírgula
+        callbacks: {
+            "input": debounce(onInput, 400) // Chama onInput após 400ms de inatividade
+        }
+    });
+
+    // Opcional: Se o campo já tiver valores (ex: ao recarregar a página com erro de validação),
+    // o Tagify irá automaticamente convertê-los em tags se estiverem separados por vírgula no valor inicial do textarea.
+});
+</script>
+{% endblock %}
