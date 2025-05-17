@@ -10,6 +10,7 @@ import logging
 from jinja2 import Environment, FileSystemLoader, select_autoescape # Import select_autoescape
 import json  # For logging context and SAVING DATA
 import traceback  # For explicit error printing
+import time 
 
 logger = logging.getLogger(__name__)
 
@@ -322,29 +323,22 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
     water_desc = atmosphere_desc
 
     # Magnetic Activity (Score)
-    mass_str = data.get("pl_masse")
-    radius_str = data.get("pl_rade")
-    mass, radius = None, None
-
+    mass_str = data.get("pl_masse") 
+    mass = None
     if mass_str is not None:
-        try: mass = float(mass_str)
-        except (ValueError, TypeError): pass
-    
-    if radius_str is not None:
-        try: radius = float(radius_str)
-        except (ValueError, TypeError): pass
-
-    if mass is None and radius is not None:
         try:
-            if radius < 1.5:
-                mass = radius ** 2.06
-            else:
-                mass = radius ** 0.59
-        except Exception:
-            mass = None # Mantém mass como None se houver erro no cálculo
+            mass = float(mass_str)
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert mass '{mass_str}' to float for planet {data.get('pl_name', 'Unknown')}")
             
-    st_spectype = data.get("st_spectype", "")
-    magnetic_score = 60 # Default
+    st_spectype = data.get("st_spectype")
+    magnetic_desc = "Low" # Default
+    magnetic_score = 10.0 # Default
+    star_type_condition_met = False
+
+    if isinstance(st_spectype, str) and st_spectype.strip(): # Verifica se é uma string não vazia
+        if st_spectype.startswith("G") or st_spectype.startswith("K"):
+         star_type_condition_met = True
 
     if mass is not None:
         if mass > 1 and ("Terran" in classification or "Superterran" in classification):
@@ -388,40 +382,147 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
         "presence_of_moons_desc": moons_desc,
     }
 
-def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for_debug_json):
-    logger.info(f"Starting _prepare_data_for_aggregated_reports with {len(all_planets_report_data)} planets.")
-    
-    # This function now expects `all_planets_report_data` to be a list of dictionaries,
-    # where each dictionary is the `processed_result` from `process_planet_data` (via app/routes.py)
-    # This `processed_result` (now `p_data` in the loop) should contain:
-    # - "planet_data_dict": The core data for the planet.
-    # - "scores_for_report": Calculated habitability scores.
-    # - "sephi_scores_for_report": Calculated SEPHI scores.
-    # - "hz_data_tuple": Habitable zone data.
-
-    debug_file_path = os.path.join(output_dir_for_debug_json, "debug_input_all_planets_report_data_AGGREGATED_INPUT.json")
-    try:
-        with open(debug_file_path, "w", encoding="utf-8") as f_debug:
-            json.dump(all_planets_report_data, f_debug, indent=2, default=str) 
-        logger.info(f"Saved all_planets_report_data (input to _prepare_data) for debugging to {debug_file_path}")
-    except Exception as e_debug:
-        logger.error(f"Could not save all_planets_report_data for debugging: {e_debug}")
-
-    processed_data_list = []
-    for i, p_data in enumerate(all_planets_report_data):
-        # ALIGNMENT WITH STABLE VERSION:
-        # Extract data using keys consistent with the stable version"s `processed_result` structure
-        planet_raw_TAP_data = p_data.get("planet_data_dict", {}) 
-        scores_processed = p_data.get("scores_for_report", {}) 
-        sephi_processed = p_data.get("sephi_scores_for_report", {})
-        hz_data_tuple_raw = p_data.get("hz_data_tuple", (None, None, None, None, None))
-
+def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
+    """
+    Versão corrigida da função _prepare_data_for_aggregated_reports que é mais tolerante
+    a dados ausentes e garante que planetas com dados parciais sejam incluídos.
+    """
+    import logging
+    import pandas as pd
+    import numpy as np
+    import os
+    from datetime import datetime # Adicione se não estiver lá
+    import json # Adicione se não estiver lá
         
-        planet_name_for_log = planet_raw_TAP_data.get("pl_name", p_data.get("pl_name_display", "Unknown"))
-        logger.info(f"Processing planet {i+1}/{len(all_planets_report_data)} for aggregated report: {planet_name_for_log}")
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting _prepare_data_for_aggregated_reports with {len(all_planets_report_data)} planets")
+        
+    # Salvar os dados de entrada para depuração (se desejar manter)
+    debug_input_path = os.path.join(output_dir, "debug_input_all_planets_report_data_AGGREGATED_INPUT.json")
+    try:
+        with open(debug_input_path, "w", encoding="utf-8") as f_debug:
+            json.dump(all_planets_report_data, f_debug, indent=2, default=str)
+        logger.info(f"Saved input for _prepare_data_for_aggregated_reports to {debug_input_path}")
+    except Exception as e_debug:
+        logger.error(f"Could not save input for debugging: {e_debug}")
 
-        classification_text = planet_raw_TAP_data.get("classification_final_display", planet_raw_TAP_data.get("classification", "N/A"))
-        extra_fields = enrich_atmosphere_water_magnetic_moons(planet_raw_TAP_data, classification_text)
+    def safe_get(dictionary, key, default="N/A"):
+        # ... (sua implementação de safe_get)
+        if dictionary is None:
+            return default
+        value = dictionary.get(key)
+        if pd.isna(value) or value is None:
+            return default
+        return value
+    
+    def format_float_field(value, precision=".2f"):
+        # ... (sua implementação de format_float_field)
+        if pd.isna(value) or value == "N/A" or str(value).strip() == "":
+            return "N/A"
+        try:
+            return f"{float(str(value)):{precision}}"
+        except (ValueError, TypeError):
+            return str(value)
+        
+
+# Esta é a função get_score_info DENTRO de _prepare_data_for_aggregated_reports
+    def get_score_info(scores_dict, field_name):
+            # Valores padrão
+            default_numeric_score = 0.0
+            default_color = "#808080"  # Cinza para N/A ou erro
+            default_text = "N/A"
+
+            if not isinstance(scores_dict, dict):
+                logger.warning(f"scores_dict is not a dict for field '{field_name}'. Using default score info.")
+                return {"score": default_numeric_score, "color": default_color, "text": default_text}
+            
+            score_tuple = scores_dict.get(field_name)
+            
+            # Se não houver tupla, ou a tupla for muito curta, ou o primeiro elemento for pd.isna (None, np.nan, etc.)
+            if not isinstance(score_tuple, tuple) or len(score_tuple) < 1 or pd.isna(score_tuple[0]):
+                # Log se o score_tuple for inválido mas não pd.isna
+                if not (isinstance(score_tuple, tuple) and len(score_tuple) >=1 and pd.isna(score_tuple[0])):
+                     logger.debug(f"Invalid or missing score_tuple for field '{field_name}'. score_tuple: {score_tuple}. Using default score info.")
+                return {"score": default_numeric_score, "color": default_color, "text": default_text}
+
+            raw_score_value = score_tuple[0]
+            numeric_val_for_format = default_numeric_score # Inicializa com default
+
+            try:
+                # Tenta converter o valor bruto para float. Se já for float/int, tudo bem.
+                # Se for uma string como "50.0", será convertido.
+                # Se for uma string como "N/A", levantará ValueError.
+                numeric_val_for_format = float(raw_score_value)
+            except (ValueError, TypeError):
+                # Se a conversão falhar, não é um "número real".
+                # numeric_val_for_format permanece como default_numeric_score (0.0).
+                logger.warning(f"Score value '{raw_score_value}' for field '{field_name}' is not a valid number. Defaulting numeric component to {default_numeric_score} for formatting.")
+            
+            # Determina a cor: usa a cor da tupla se disponível e válida, senão calcula ou usa default.
+            color_val = default_color # Cor padrão
+            if len(score_tuple) > 1 and score_tuple[1] is not None and isinstance(score_tuple[1], str) and score_tuple[1].startswith("#"):
+                color_val = score_tuple[1]
+            else: # Se não houver cor válida na tupla, calcula baseada no valor numérico
+                color_val = get_color_for_percentage(numeric_val_for_format) 
+
+            # Determina o texto: usa a descrição da tupla se disponível, senão usa o valor bruto como string.
+            text_val = str(raw_score_value) # Default para o valor bruto como string
+            if len(score_tuple) > 2 and score_tuple[2] is not None and str(score_tuple[2]).strip():
+                text_val = str(score_tuple[2])
+            
+            return {
+                "score": numeric_val_for_format, # GARANTIDO que é float
+                "color": color_val,
+                "text": text_val
+            }
+    
+    # Função para obter cor baseada em porcentagem
+    def get_color_for_percentage(percentage):
+        if percentage is None or pd.isna(percentage):
+            return "#808080"  # Grey for N/A
+        try:
+            percentage = float(percentage)
+        except (ValueError, TypeError):
+            return "#808080"  # Grey for invalid
+
+        if percentage >= 80:
+            return "#28a745"  # Green (Bootstrap success)
+        elif percentage >= 60:
+            return "#90ee90"  # Light Green (PaleGreen)
+        elif percentage >= 40:
+            return "#ffc107"  # Amber (Bootstrap warning)
+        elif percentage >= 20:
+            return "#fd7e14"  # Orange (Bootstrap orange)
+        else:
+            return "#dc3545"  # Red (Bootstrap danger)
+    
+    processed_data_list = []
+    
+    for p_data in all_planets_report_data:
+        # Verificar se temos dados mínimos necessários
+        planet_raw_TAP_data = p_data.get("planet_data_dict", {})
+        if not planet_raw_TAP_data:
+            logger.warning("Skipping planet with no raw data dictionary")
+            continue
+        
+        planet_name = safe_get(planet_raw_TAP_data, "pl_name", "Unknown Planet")
+        planet_name_for_log = planet_name
+        
+        logger.info(f"Processing {planet_name_for_log} for aggregated reports")
+        
+        # Obter scores e dados de forma segura
+        scores_processed = p_data.get("scores_for_report", {})
+        sephi_processed = p_data.get("sephi_scores_for_report", {})
+        hz_data_tuple_raw = p_data.get("hz_data_tuple")
+
+
+        # Obter classificação de forma segura
+        classification_text = safe_get(planet_raw_TAP_data, "classification", "Unknown")
+        if "classification_final_display" in planet_raw_TAP_data:
+            classification_text = safe_get(planet_raw_TAP_data, "classification_final_display", classification_text)
+
+        enriched_details = enrich_atmosphere_water_magnetic_moons(planet_raw_TAP_data, classification_text)
+
         # --- NOVO CÁLCULO PARA STELLAR ACTIVITY SCORE ---
         st_age_str = planet_raw_TAP_data.get("st_age")
         # Default para "Low" (atividade real alta, score de favorabilidade baixo = 30%)
@@ -446,98 +547,117 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
         
         logger.debug(f"Planet {planet_name_for_log}: st_age='{st_age_str}', Stellar Activity Description (from logic): '{stellar_activity_desc_for_log}', Score: {stellar_activity_score_val}%")
         # --- FIM DO NOVO CÁLCULO ---
-
-        def get_score_info(score_source_dict, key, default_percentage=0.0):
-            val_tuple = score_source_dict.get(key)
-            score_percentage_for_display = default_percentage 
-            color_val = get_color_for_percentage(default_percentage)
-            text_desc = "N/A"
-            
-
-            raw_value_from_input = None
-            input_color = None
-            input_text_desc = None
-
-            if val_tuple is not None:
-                if isinstance(val_tuple, (list, tuple)) and len(val_tuple) > 0 and pd.notna(val_tuple[0]):
-                    raw_value_from_input = val_tuple[0]
-                    if len(val_tuple) > 1 and pd.notna(val_tuple[1]): input_color = val_tuple[1]
-                    if len(val_tuple) > 2 and pd.notna(val_tuple[2]): input_text_desc = str(val_tuple[2])
-                elif pd.notna(val_tuple): 
-                    raw_value_from_input = val_tuple
-            
-            if raw_value_from_input is not None:
-                try:
-                    current_score_val = float(raw_value_from_input)
-                    # Heuristic to correct potentially 100x inflated scores (only if they are way off)
-                    if abs(current_score_val) > 100.5 and abs(current_score_val) <= 10050: # e.g. 5000% for 50%
-                        potential_corrected_score = current_score_val / 100.0
-                        # Only apply correction if it brings it into a reasonable 0-100 range
-                        if 0 <= abs(potential_corrected_score) <= 100.5: 
-                            current_score_val = potential_corrected_score
-                            logger.info(f"Planet {planet_name_for_log}: Score {key} ({raw_value_from_input}) seemed 100x inflated, corrected to {current_score_val}%.")
-                    
-                    score_percentage_for_display = np.clip(current_score_val, 0, 100) # Ensure it's within 0-100
-                    color_val = input_color if input_color is not None else get_color_for_percentage(score_percentage_for_display)
-                    text_desc = input_text_desc if input_text_desc is not None else "N/A"
-                        
-                except (ValueError, TypeError):
-                    logger.warning(f"Planet {planet_name_for_log}: Could not convert score value for {key}: {raw_value_from_input}. Using default {default_percentage}%.")
-                    score_percentage_for_display = default_percentage
-                    color_val = get_color_for_percentage(default_percentage)
-                    text_desc = "N/A"
-            else: # val_tuple is None or first element is NaN
-                score_percentage_for_display = default_percentage
-                color_val = get_color_for_percentage(default_percentage)
-                text_desc = "N/A"
-
-            return {"score": score_percentage_for_display, "color": color_val, "text": text_desc}
-
+        
         scores_for_template = {
             "ESI": get_score_info(scores_processed, "ESI"),
+            "SPH": get_score_info(scores_processed, "SPH"),
             "PHI": get_score_info(scores_processed, "PHI"),
-            "SPH": get_score_info(scores_processed, "SPH", 0.0),
-            "Habitability": get_score_info(scores_processed, "Habitability Score", 0.0),
             "Host_Star_Type": get_score_info(scores_processed, "Host Star Type"),
             "System_Age": get_score_info(scores_processed, "System Age"),
-            "Stellar_Activity": {  # Nova lógica integrada
+                
+            # >>>>> MODIFICAÇÃO PARA STELLAR ACTIVITY <<<<<
+            "Stellar_Activity": {
+                # Supondo que 'stellar_activity_score' deve vir de planet_raw_TAP_data
+                # Se precisar de uma descrição mais elaborada, você precisará de uma fonte para ela.
                 "score": stellar_activity_score_val,
                 "color": get_color_for_percentage(stellar_activity_score_val),
-                "text": "N/A" # O template não parece usar 'text' para este score específico
-            },            
+                "text": stellar_activity_desc_for_log, # Tenta pegar uma descrição se houver
+            },   
+
             "Orbital_Eccentricity": get_score_info(scores_processed, "Orbital Eccentricity"),
-            "Atmosphere_Potential": get_score_info(scores_processed, "Atmosphere Potential"),
-            "Liquid_Water_Potential": get_score_info(scores_processed, "Liquid Water Potential"),
-                            # --- INÍCIO DA CORREÇÃO 1 ---
+                
+            # >>>>> USAR enriched_details AQUI <<<<<
+            "Atmosphere_Potential": {
+                "score": np.clip(float(enriched_details.get("atmosphere_potential_score", 0.0)), 0, 100),
+                "color": get_color_for_percentage(float(enriched_details.get("atmosphere_potential_score", 0.0))),
+                "text": enriched_details.get("atmosphere_potential_desc", "N/A")
+            },
+            "Liquid_Water_Potential": {
+                "score": np.clip(float(enriched_details.get("liquid_water_potential_score", 0.0)), 0, 100),
+                "color": get_color_for_percentage(float(enriched_details.get("liquid_water_potential_score", 0.0))),
+                "text": enriched_details.get("liquid_water_potential_desc", "N/A")
+            },
             "Magnetic_Activity": {
-            "score": np.clip(float(extra_fields.get("magnetic_activity_score", 0.0)), 0, 100),
-            "color": get_color_for_percentage(float(extra_fields.get("magnetic_activity_score", 0.0))),
-        # O template combined_template não usa 'text' para estes, mas é bom ter para consistência
-            "text": extra_fields.get("magnetic_activity_desc", "N/A") 
+                "score": np.clip(float(enriched_details.get("magnetic_activity_score", 0.0)), 0, 100),
+                "color": get_color_for_percentage(float(enriched_details.get("magnetic_activity_score", 0.0))),
+                "text": enriched_details.get("magnetic_activity_desc", "N/A") 
             },
             "Presence_of_Moons": {
-            "score": np.clip(float(extra_fields.get("presence_of_moons_score", 0.0)), 0, 100),
-            "color": get_color_for_percentage(float(extra_fields.get("presence_of_moons_score", 0.0))),
-            "text": extra_fields.get("presence_of_moons_desc", "N/A")
+                "score": np.clip(float(enriched_details.get("presence_of_moons_score", 0.0)), 0, 100),
+                "color": get_color_for_percentage(float(enriched_details.get("presence_of_moons_score", 0.0))),
+                "text": enriched_details.get("presence_of_moons_desc", "N/A")
             },
-    # --- FIM DA CORREÇÃO 1 ---
+            # ... (restante dos scores como Habitable_Zone_Position, Size, etc.)
             "Habitable_Zone_Position": get_score_info(scores_processed, "Habitable Zone Position"),
             "Size": get_score_info(scores_processed, "Size"),
             "Density": get_score_info(scores_processed, "Density"),
             "Mass": get_score_info(scores_processed, "Mass"),
             "Star_Metallicity": get_score_info(scores_processed, "Star Metallicity")
+        }
 
+        
+        # Tentar obter campos extras do dicionário de dados do planeta
+        for field in enriched_details.keys():
+            if field in planet_raw_TAP_data:
+                enriched_details[field] = planet_raw_TAP_data[field]
+        
+        # Função auxiliar para obter informações de score
+        def get_score_info(scores_dict, field_name):
+            if not isinstance(scores_dict, dict):
+                return {"score": 0.0, "color": "#757575", "text": "N/A"}
+            
+            score_tuple = scores_dict.get(field_name)
+            if not isinstance(score_tuple, tuple) or len(score_tuple) < 2 or pd.isna(score_tuple[0]):
+                return {"score": 0.0, "color": "#757575", "text": "N/A"}
+            
+            return {
+                "score": score_tuple[0],
+                "color": score_tuple[1],
+                "text": score_tuple[2] if len(score_tuple) > 2 else "N/A"
+            }
+        
+        # Preparar scores para o template com valores padrão para campos ausentes
+        scores_for_template = {
+            "ESI": get_score_info(scores_processed, "ESI"),
+            "SPH": get_score_info(scores_processed, "SPH"),
+            "PHI": get_score_info(scores_processed, "PHI"),
+            "Host_Star_Type": get_score_info(scores_processed, "Host Star Type"),
+            "System_Age": get_score_info(scores_processed, "System Age"),
+            "Stellar_Activity": {
+                "score": stellar_activity_score_val,
+                "color": get_color_for_percentage(stellar_activity_score_val),
+                "text": stellar_activity_desc_for_log, 
+            },            
+            "Orbital_Eccentricity": get_score_info(scores_processed, "Orbital Eccentricity"),
+            "Atmosphere_Potential": get_score_info(scores_processed, "Atmosphere Potential"),
+            "Liquid_Water_Potential": get_score_info(scores_processed, "Liquid Water Potential"),
+            "Magnetic_Activity": {
+                "score": np.clip(float(enriched_details.get("magnetic_activity_score", 0.0)), 0, 100),
+                "color": get_color_for_percentage(float(enriched_details.get("magnetic_activity_score", 0.0))),
+                "text": enriched_details.get("magnetic_activity_desc", "N/A") 
+            },
+            "Presence_of_Moons": {
+                "score": np.clip(float(enriched_details.get("presence_of_moons_score", 0.0)), 0, 100),
+                "color": get_color_for_percentage(float(enriched_details.get("presence_of_moons_score", 0.0))),
+                "text": enriched_details.get("presence_of_moons_desc", "N/A")
+            },
+            "Habitable_Zone_Position": get_score_info(scores_processed, "Habitable Zone Position"),
+            "Size": get_score_info(scores_processed, "Size"),
+            "Density": get_score_info(scores_processed, "Density"),
+            "Mass": get_score_info(scores_processed, "Mass"),
+            "Star_Metallicity": get_score_info(scores_processed, "Star Metallicity")
         }
         
-        # ALIGNMENT WITH STABLE VERSION for SEPHI keys:
+        # Preparar scores SEPHI para o template
         sephi_scores_for_template = {
             "SEPHI": get_score_info(sephi_processed, "SEPHI"),
-            "SEPHI_L1": get_score_info(sephi_processed, "L1 (Surface)"), # Changed from "SEPHI L1 (Surface)"
-            "SEPHI_L2": get_score_info(sephi_processed, "L2 (Escape Velocity)"), # Changed from "SEPHI L2 (Escape Vel.)"
-            "SEPHI_L3": get_score_info(sephi_processed, "L3 (Habitable Zone)"), # Changed from "SEPHI L3 (HZ)"
-            "SEPHI_L4": get_score_info(sephi_processed, "L4 (Magnetic Field)") # Changed from "SEPHI L4 (Mag. Field)"
+            "SEPHI_L1": get_score_info(sephi_processed, "L1 (Surface)"),
+            "SEPHI_L2": get_score_info(sephi_processed, "L2 (Escape Velocity)"),
+            "SEPHI_L3": get_score_info(sephi_processed, "L3 (Habitable Zone)"),
+            "SEPHI_L4": get_score_info(sephi_processed, "L4 (Magnetic Field)")
         }
-        # --- INÍCIO DO CÁLCULO DO NOVO HABITABILITY SCORE ---
+        
+        # Calcular Habitability Score
         is_habitable_candidate = False
         if any(term in classification_text for term in ["Mini-Terran", "Terran", "Superterran"]):
             is_habitable_candidate = True
@@ -553,7 +673,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
         components_for_average.append(scores_for_template["System_Age"]["score"])
         
         esi_val = scores_for_template["ESI"]["score"]
-        phi_val = scores_for_template["PHI"]["score"] # Já está na escala 0-100
+        phi_val = scores_for_template["PHI"]["score"]
 
         if pd.notna(esi_val): 
             components_for_average.append(esi_val)
@@ -567,26 +687,26 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
             components_for_average.append(scores_for_template["Mass"]["score"])
         
         habitability_score_value = 0.0
-        if components_for_average: # Evita divisão por zero se a lista estiver vazia
+        if components_for_average:
             habitability_score_value = round(sum(components_for_average) / len(components_for_average), 2)
         else:
             logger.warning(f"Nenhum componente para calcular a média do Habitability Score para {planet_name_for_log}. Definido como 0.")
 
         # Aplica bônus para planetas "Warm" Terran/Superterran
-        # A classificação "Warm" deve vir de 'classification_text'
         is_warm_classified = "Warm" in classification_text 
         if is_warm_classified and ("Terran" in classification_text or "Superterran" in classification_text):
-            habitability_score_value = min(habitability_score_value + 10, 100) # Bônus de 10, limitado a 100
+            habitability_score_value = min(habitability_score_value + 10, 100)
         
-        habitability_score_value = np.clip(habitability_score_value, 0, 100) # Garante que o score está entre 0 e 100
+        habitability_score_value = np.clip(habitability_score_value, 0, 100)
 
         # Adiciona/Atualiza o "Habitability" score em scores_for_template
         scores_for_template["Habitability"] = {
             "score": habitability_score_value,
             "color": get_color_for_percentage(habitability_score_value),
-            "text": "Overall Habitability Score" # Texto descritivo opcional
+            "text": "Overall Habitability Score"
         }
-        # --- FIM DO CÁLCULO DO NOVO HABITABILITY SCORE ---        
+        
+        # Calcular informações de viagem
         sy_dist_pc = planet_raw_TAP_data.get("sy_dist")
         distance_ly_str = "N/A"
         travel_details = {
@@ -595,6 +715,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
             "twenty_ls_years": "N/A",
             "near_ls_years": "N/A"
         }
+        
         if pd.notna(sy_dist_pc):
             try:
                 dist_ly_f = float(str(sy_dist_pc)) * 3.26156
@@ -606,10 +727,13 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
             except (ValueError, TypeError):
                 logger.warning(f"Could not calculate travel times for {planet_name_for_log} due to distance conversion error for sy_dist: {sy_dist_pc}")
         
+        # Obter descrição da zona habitável
         hz_description = "N/A"
         if hz_data_tuple_raw and len(hz_data_tuple_raw) > 4 and pd.notna(hz_data_tuple_raw[4]): 
             hz_description = str(hz_data_tuple_raw[4])
-        surface_gravity_value_str = "N/A"  # Default
+        
+        # Calcular gravidade superficial
+        surface_gravity_value_str = "N/A"
         raw_pl_grav = planet_raw_TAP_data.get("pl_grav")
 
         if pd.notna(raw_pl_grav):
@@ -617,13 +741,8 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
         else:
             # Tentar calcular se pl_grav não estiver disponível
             raw_pl_masse = planet_raw_TAP_data.get("pl_masse") 
-            # Se pl_masse não estiver disponível, pode tentar pl_bmassj como fallback,
-            # mas no seu JSON, pl_masse ("9.10") parece ser o campo mais direto para massa em M⊕ para Kepler-22 b
-            # e pl_bmassj ("0.0104") para Kepler-452 b (que também tem pl_masse: "3.29")
-            # A escolha de qual usar como fallback (ou se deve haver um) depende da sua prioridade de dados.
-            # Vamos priorizar pl_masse se disponível, pois é o que usamos na mensagem anterior.
-            if not pd.notna(raw_pl_masse): # Se pl_masse for NaN ou não existir
-                 raw_pl_masse = planet_raw_TAP_data.get("pl_bmassj") # Tenta usar pl_bmassj
+            if not pd.notna(raw_pl_masse):
+                raw_pl_masse = planet_raw_TAP_data.get("pl_bmassj")
 
             raw_pl_rade = planet_raw_TAP_data.get("pl_rade")
 
@@ -633,13 +752,13 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
                     radius_earth_str = str(raw_pl_rade)
                     
                     # Remove o "<" se presente, para poder converter para float
-                    if isinstance(mass_earth_str, str) and mass_earth_str.startswith("<"):
+                    if mass_earth_str.startswith("<"):
                         mass_earth_str = mass_earth_str.lstrip("<")
                     
                     mass_earth = float(mass_earth_str)
                     radius_earth = float(radius_earth_str)
                     
-                    if radius_earth > 0:  # Evitar divisão por zero
+                    if radius_earth > 0:
                         calculated_gravity = mass_earth / (radius_earth ** 2)
                         surface_gravity_value_str = format_float_field(calculated_gravity, ".2f")
                         logger.info(f"Calculated surface gravity for {planet_name_for_log}: {surface_gravity_value_str} g (M={mass_earth} M⊕, R={radius_earth} R⊕)")
@@ -650,6 +769,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
             else:
                 logger.warning(f"Mass ('{raw_pl_masse}') or radius ('{raw_pl_rade}') is not available for surface gravity calculation for {planet_name_for_log}.")
 
+        # Preparar dados para o template
         data_for_template = {
             "planet_name": planet_raw_TAP_data.get("pl_name", "N/A"),
             "classification": classification_text,
@@ -670,73 +790,186 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir_for
             "star_temp_k": format_float_field(planet_raw_TAP_data.get("st_teff"),".0f"), 
             "star_radius_solar": format_float_field(planet_raw_TAP_data.get("st_rad")),
             "star_info": p_data.get("star_info", {}), 
-
-        # Campos extras:
-            "magnetic_activity_score": extra_fields["magnetic_activity_score"],
-            "presence_of_moons_score": extra_fields["presence_of_moons_score"],
-            "atmosphere_potential_desc": extra_fields["atmosphere_potential_desc"],
-            "liquid_water_potential_desc": extra_fields["liquid_water_potential_desc"],
-            "magnetic_activity_desc": extra_fields["magnetic_activity_desc"],
-            "presence_of_moons_desc": extra_fields["presence_of_moons_desc"],
-
+            "magnetic_activity_score": enriched_details["magnetic_activity_score"],
+            "presence_of_moons_score": enriched_details["presence_of_moons_score"],
+            "atmosphere_potential_desc": enriched_details["atmosphere_potential_desc"],
+            "liquid_water_potential_desc": enriched_details["liquid_water_potential_desc"],
+            "magnetic_activity_desc": enriched_details["magnetic_activity_desc"],
+            "presence_of_moons_desc": enriched_details["presence_of_moons_desc"],
         }
+        
         processed_data_list.append(data_for_template)
-
 
     if not processed_data_list:
         logger.warning("No data processed for summary/combined report (processed_data_list is empty).")
-        return [] 
+        return []
         
-    logger.info(f"Finished _prepare_data_for_aggregated_reports. Processed {len(processed_data_list)} planets.")
+    debug_output_path = os.path.join(output_dir, "debug_output_processed_planets_data.json")
+    try:
+        with open(debug_output_path, "w", encoding="utf-8") as f_debug:
+            json.dump(processed_data_list, f_debug, indent=2, default=str)
+        logger.info(f"Saved processed_planets_data for debugging to {debug_output_path}")
+    except Exception as e_debug:
+        logger.error(f"Could not save processed_planets_data for debugging: {e_debug}")
+
     return processed_data_list
 
 def generate_summary_report_html(all_planets_report_data, template_env, output_dir):
+    """
+    Versão corrigida da função generate_summary_report_html que é mais robusta
+    a dados ausentes ou parciais.
+    """
+    import os
+    import logging
+    from datetime import datetime
+    
+    logger = logging.getLogger(__name__)
+    
+    # Função auxiliar para garantir que o diretório exista
+    def ensure_dir(directory):
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            logger.info(f"Created directory: {directory}")
+    
     ensure_dir(output_dir)
     report_filename = "summary_report.html"
     full_report_path = os.path.join(output_dir, report_filename)
     logger.info(f"Generating summary report to {full_report_path}")
+    
     try:
         template = template_env.get_template("summary_template.html")
-        # `all_planets_report_data` here is the list of `processed_result` dicts from routes.py
+        
+        # Usar a versão corrigida da função de preparação de dados
         processed_planets_data = _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir)
         
         if not processed_planets_data:
-            logger.warning("No processed data available for summary report. Report will be empty or show 'no data'.")
-
+            logger.warning("No processed data available for summary report. Creating empty report.")
+            # Criar um relatório vazio em vez de retornar None
+            processed_planets_data = []
+        
         context = {"all_planets_data": processed_planets_data, "datetime": datetime}
         html_content = template.render(context)
+        
         with open(full_report_path, "w", encoding="utf-8") as f:
             f.write(html_content)
+        
         logger.info(f"Summary report saved to {full_report_path}")
         return full_report_path
+    
     except Exception as e:
         logger.error(f"Error generating summary report: {e}", exc_info=True)
+        import traceback
         traceback.print_exc()
-        return None
+        
+        # Criar um relatório de erro em vez de retornar None
+        try:
+            error_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Summary Report Error</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    .error {{ color: red; background-color: #ffeeee; padding: 10px; border-radius: 5px; }}
+                </style>
+            </head>
+            <body>
+                <h1>Summary Report Error</h1>
+                <div class="error">
+                    <p>An error occurred while generating the summary report:</p>
+                    <pre>{str(e)}</pre>
+                </div>
+                <p>Please try again or contact support if the problem persists.</p>
+                <p>Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </body>
+            </html>
+            """
+            with open(full_report_path, "w", encoding="utf-8") as f:
+                f.write(error_html)
+            logger.info(f"Error summary report saved to {full_report_path}")
+            return full_report_path
+        except Exception as e2:
+            logger.error(f"Failed to create error report: {e2}")
+            return None
+
 
 def generate_combined_report_html(all_planets_report_data, template_env, output_dir):
+    """
+    Versão corrigida da função generate_combined_report_html que é mais robusta
+    a dados ausentes ou parciais.
+    """
+    import os
+    import logging
+    from datetime import datetime
+    
+    logger = logging.getLogger(__name__)
+    
+    # Função auxiliar para garantir que o diretório exista
+    def ensure_dir(directory):
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            logger.info(f"Created directory: {directory}")
+    
     ensure_dir(output_dir)
     report_filename = "combined_report.html"
     full_report_path = os.path.join(output_dir, report_filename)
     logger.info(f"Generating combined report to {full_report_path}")
+    
     try:
         template = template_env.get_template("combined_template.html")
-        # `all_planets_report_data` here is the list of `processed_result` dicts from routes.py
+        
+        # Usar a versão corrigida da função de preparação de dados
         processed_planets_data = _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir)
-
+        
         if not processed_planets_data:
-            logger.warning("No processed data available for combined report. Report will be empty or show 'no data'.")
-
+            logger.warning("No processed data available for combined report. Creating empty report.")
+            # Criar um relatório vazio em vez de retornar None
+            processed_planets_data = []
+        
         context = {"all_planets_data": processed_planets_data, "datetime": datetime}
         html_content = template.render(context)
+        
         with open(full_report_path, "w", encoding="utf-8") as f:
             f.write(html_content)
+        
         logger.info(f"Combined report saved to {full_report_path}")
         return full_report_path
+    
     except Exception as e:
         logger.error(f"Error generating combined report: {e}", exc_info=True)
+        import traceback
         traceback.print_exc()
-        return None
+        
+        # Criar um relatório de erro em vez de retornar None
+        try:
+            error_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Combined Report Error</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    .error {{ color: red; background-color: #ffeeee; padding: 10px; border-radius: 5px; }}
+                </style>
+            </head>
+            <body>
+                <h1>Combined Report Error</h1>
+                <div class="error">
+                    <p>An error occurred while generating the combined report:</p>
+                    <pre>{str(e)}</pre>
+                </div>
+                <p>Please try again or contact support if the problem persists.</p>
+                <p>Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </body>
+            </html>
+            """
+            with open(full_report_path, "w", encoding="utf-8") as f:
+                f.write(error_html)
+            logger.info(f"Error combined report saved to {full_report_path}")
+            return full_report_path
+        except Exception as e2:
+            logger.error(f"Failed to create error report: {e2}")
+            return None
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
