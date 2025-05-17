@@ -3,42 +3,63 @@
 {% block content %}
 <div class="pt-4">
     <h2>Search Exoplanets</h2>
-    <!-- Mensagem atualizada -->
     <p class="lead">Enter the names of the exoplanets you want to analyze. Type a name and press Enter or comma to add it as a tag. Start typing for suggestions.</p>
         
-    <form method="POST" action="{{ url_for("index") }}" novalidate>
+    <form id="planet-search-form" method="POST" action="{{ url_for('index') }}" novalidate>
         {{ form.hidden_tag() }}
         <div class="mb-3">
-            {{ form.planet_names.label(class="form-label") }} {# Label comes from forms.py, already translated #}
-            {# O campo abaixo será transformado pelo Tagify. Dê um ID a ele. #}
+            {{ form.planet_names.label(class="form-label") }}
             {{ form.planet_names(id="planet-names-input", class="form-control" ~ (" is-invalid" if form.planet_names.errors else ""), rows=4) }}
             {% if form.planet_names.errors %}
                 <div class="invalid-feedback">
                     {% for error in form.planet_names.errors %}
-                        <span>{{ error }}</span> {# Error messages from validators in forms.py, already translated #}
+                        <span>{{ error }}</span>
                     {% endfor %}
                 </div>
             {% endif %}
         </div>
-        <div class="mb-3">
-            {{ form.parameter_overrides.label(class="form-label") }} {# Label from forms.py #}
-            <small class="form-text text-muted">(Optional. Format: PlanetName: param1=value1; param2=value2. One line per planet.)</small>
-            {{ form.parameter_overrides(class="form-control" ~ (" is-invalid" if form.parameter_overrides.errors else ""), rows=5) }}
-            {% if form.parameter_overrides.errors %}
-                <div class="invalid-feedback">
-                    {% for error in form.parameter_overrides.errors %}
-                        <span>{{ error }}</span> {# Error messages from validators in forms.py #}
-                    {% endfor %}
-                </div>
-            {% endif %}
-        </div>
-        <div class="d-grid gap-2">
-            {{ form.submit(class="btn btn-primary btn-lg") }} {# Button text from forms.py #}
+        
+        <!-- Botão de busca inicial -->
+        <div class="d-grid gap-2 mb-4">
+            <button type="button" id="search-planets-btn" class="btn btn-primary btn-lg">Search Planets</button>
         </div>
     </form>
+    
+    <!-- Loading indicator (inicialmente oculto) -->
+    <div id="loading-indicator" class="text-center my-4" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Searching for planet data...</p>
+    </div>
+    
+    <!-- Área para exibição de parâmetros editáveis (inicialmente oculta) -->
+    <div id="planets-parameters-container" style="display: none;">
+        <h3 class="mb-3">Edit Planet Parameters</h3>
+        <p class="text-muted">Modify any parameter to override the default values. Changes will affect the generated reports.</p>
+        
+        <div id="planets-cards-container">
+            <!-- Cards de planetas serão inseridos aqui via JavaScript -->
+        </div>
+        
+        <!-- Formulário oculto para enviar os dados -->
+        <form id="parameters-form" method="POST" action="{{ url_for('index') }}">
+            {{ form.hidden_tag() }}
+        <input type="hidden" id="planet-names-hidden" name="planet_names">
+        <input type="hidden" id="parameter-overrides-hidden" name="parameter_overrides">
+    
+        <div class="d-grid gap-2 mt-4">
+            <button type="submit" class="btn btn-success btn-lg">Generate Reports</button>
+            <button type="button" id="reset-parameters-btn" class="btn btn-outline-secondary">Reset All Parameters</button>
+        </div>
+    </form>
+
+    </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
+<!-- Script Tagify (mantido do original) -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var input = document.getElementById('planet-names-input');
@@ -62,64 +83,341 @@ document.addEventListener('DOMContentLoaded', function() {
         tagify.loading(true); // Mostrar indicador de loading
 
         try {
-            // A URL deve corresponder ao endpoint que você criará no Flask
             const response = await fetch(`/api/planets/autocomplete?term=${encodeURIComponent(query)}`);
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({})); // Tenta pegar JSON de erro
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(`HTTP error! status: ${response.status}, message: ${errorData.error || 'Unknown error'}`);
             }
             const data = await response.json(); 
-            // Espera-se que o endpoint retorne um array de objetos [{value: "Nome"}, ...] ou ["Nome1", "Nome2"]
             return data; 
         } catch (error) {
             console.error("Failed to fetch planet suggestions:", error);
-            tagify.dropdown.hide(); // Esconder dropdown em caso de erro
-            return []; // Retorna array vazio em caso de erro
+            tagify.dropdown.hide();
+            return [];
         } finally {
-            tagify.loading(false); // Esconder indicador de loading
+            tagify.loading(false);
         }
     }
 
     async function onInput(e) {
-        var value = e.detail.value; // o que foi digitado no input do Tagify
-        tagify.whitelist = null; // Limpa a whitelist antiga para recarregar as sugestões
+        var value = e.detail.value;
+        tagify.whitelist = null;
 
-        // Não buscar se o valor for muito curto
         if (value.length < 2) {
-            tagify.dropdown.hide(); // Esconde o dropdown
+            tagify.dropdown.hide();
             return;
         }
 
         try {
             const suggestions = await fetchPlanetSuggestions(value);
             if (suggestions && suggestions.length > 0) {
-                tagify.whitelist = suggestions; // Atualiza a whitelist com as novas sugestões
-                tagify.dropdown.show(value);    // Mostra dropdown com as sugestões
+                tagify.whitelist = suggestions;
+                tagify.dropdown.show(value);
             } else {
-                tagify.dropdown.hide(); // Esconde se não houver sugestões
+                tagify.dropdown.hide();
             }
         } catch (err) {
             console.error("Error updating Tagify whitelist:", err);
-            tagify.dropdown.hide(); // Esconde dropdown em caso de erro
+            tagify.dropdown.hide();
         }
     }
 
     var tagify = new Tagify(input, {
-        whitelist: [], // Começa vazio, será preenchido pela função onInput
+        whitelist: [],
         dropdown: {
-            maxItems: 20,           // Número máximo de itens no dropdown
-            enabled: 0,             // Habilitar o dropdown ao digitar (0 para onInput)
-            closeOnSelect: true,    // Fechar o dropdown ao selecionar um item
-            highlightFirst: true    // Destacar o primeiro item da lista
+            maxItems: 20,
+            enabled: 0,
+            closeOnSelect: true,
+            highlightFirst: true
         },
-        originalInputValueFormat: valuesArr => valuesArr.map(item => item.value).join(','), // Envia como string separada por vírgula
+        originalInputValueFormat: valuesArr => valuesArr.map(item => item.value).join(','),
         callbacks: {
-            "input": debounce(onInput, 400) // Chama onInput após 400ms de inatividade
+            "input": debounce(onInput, 400)
         }
     });
 
-    // Opcional: Se o campo já tiver valores (ex: ao recarregar a página com erro de validação),
-    // o Tagify irá automaticamente convertê-los em tags se estiverem separados por vírgula no valor inicial do textarea.
+    // Adicionar ao evento de clique do botão search-planets-btn
+    document.getElementById('search-planets-btn').addEventListener('click', async function() {
+        const planetNames = tagify.value.map(tag => tag.value);
+    
+        if (planetNames.length === 0) {
+            alert('Please enter at least one planet name.');
+            return;
+        }
+    
+        // Mostrar loading
+        document.getElementById('loading-indicator').style.display = 'block';
+        document.getElementById('planets-parameters-container').style.display = 'none';
+
+        try {
+            // Limpar sessão anterior (nova requisição)
+            await fetch('/api/clear-session', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('#planet-search-form input[name="csrf_token"]').value
+                }
+            });
+
+            // Obter o token CSRF do formulário principal
+            const csrfToken = document.querySelector('#planet-search-form input[name="csrf_token"]').value;
+
+            // Fazer requisição AJAX para obter dados dos planetas
+            const response = await fetch('/api/planets/parameters', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ planet_names: planetNames })
+            });
+    
+            // CORREÇÃO: Verificar se a resposta está OK e processar o JSON
+            if (!response.ok) {
+            // Tentar ler a mensagem de erro do servidor se houver
+                let errorMsg = `HTTP error! status: ${response.status}`;
+                try {
+                    const errorData = await response.json(); // Tenta parsear o erro como JSON
+                    errorMsg += `, message: ${errorData.error || JSON.stringify(errorData)}`;
+                } catch (e) {
+                // Se não for JSON, lê como texto
+                    errorMsg += `, response body: ${await response.text()}`;
+                }
+                throw new Error(errorMsg);
+            }
+
+            // CORREÇÃO: Extrair os dados JSON da resposta
+            const data = await response.json();
+
+            // Verificar se os dados dos planetas estão presentes
+            if (!data || !data.planets || !Array.isArray(data.planets)) {
+                throw new Error('Invalid response format: missing or malformed planets data');
+            }
+    
+            // Preencher os cards de planetas
+            renderPlanetCards(data.planets);
+    
+            // Esconder loading e mostrar área de parâmetros
+            document.getElementById('loading-indicator').style.display = 'none';
+            document.getElementById('planets-parameters-container').style.display = 'block';
+    
+            // Preencher campo oculto com nomes dos planetas
+            document.getElementById('planet-names-hidden').value = planetNames.join(',');
+    
+        } catch (error) {
+            console.error('Error fetching planet data:', error);
+            alert('Failed to fetch planet data. Please try again.');
+            document.getElementById('loading-indicator').style.display = 'none';
+        }
+    });
+    
+    // Função para renderizar os cards de planetas
+    function renderPlanetCards(planets) {
+        const container = document.getElementById('planets-cards-container');
+        container.innerHTML = '';
+        
+        planets.forEach((planet, index) => {
+            const card = createPlanetCard(planet, index);
+            container.appendChild(card);
+        });
+        
+        // Adicionar event listeners para os campos editáveis
+        setupParameterFields();
+    }
+    
+    // Função para criar um card de planeta
+    function createPlanetCard(planet, index) {
+        const card = document.createElement('div');
+        card.className = 'card mb-4 planet-card';
+        card.dataset.planetName = planet.pl_name;
+        
+        const cardHeader = document.createElement('div');
+        cardHeader.className = 'card-header bg-primary text-white';
+        cardHeader.innerHTML = `<h4>${planet.pl_name}</h4>`;
+        
+        const cardBody = document.createElement('div');
+        cardBody.className = 'card-body';
+        
+        // Criar abas para categorias de parâmetros
+        const tabsHtml = `
+            <ul class="nav nav-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#orbital-${index}" type="button">Orbital</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#physical-${index}" type="button">Physical</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#star-${index}" type="button">Star</button>
+                </li>
+            </ul>
+            
+            <div class="tab-content pt-3">
+                <div class="tab-pane fade show active" id="orbital-${index}">
+                    ${createParameterFields(planet, 'orbital')}
+                </div>
+                <div class="tab-pane fade" id="physical-${index}">
+                    ${createParameterFields(planet, 'physical')}
+                </div>
+                <div class="tab-pane fade" id="star-${index}">
+                    ${createParameterFields(planet, 'star')}
+                </div>
+            </div>
+        `;
+        
+        cardBody.innerHTML = tabsHtml;
+        
+        card.appendChild(cardHeader);
+        card.appendChild(cardBody);
+        
+        return card;
+    }
+    
+    // Função para criar campos de parâmetros por categoria
+    function createParameterFields(planet, category) {
+        let fields = '';
+        
+        // Definir parâmetros por categoria
+        const parameters = {
+            orbital: [
+                { key: 'pl_orbper', label: 'Orbital Period (days)', type: 'number', step: '0.01' },
+                { key: 'pl_orbsmax', label: 'Semi-Major Axis (AU)', type: 'number', step: '0.001' },
+                { key: 'pl_orbeccen', label: 'Eccentricity', type: 'number', step: '0.001', min: '0', max: '1' },
+                { key: 'pl_orbincl', label: 'Inclination (deg)', type: 'number', step: '0.1' }
+            ],
+            physical: [
+                { key: 'pl_rade', label: 'Radius (Earth radii)', type: 'number', step: '0.01' },
+                { key: 'pl_masse', label: 'Mass (Earth mass)', type: 'number', step: '0.01' },
+                { key: 'pl_dens', label: 'Density (g/cm³)', type: 'number', step: '0.01' },
+                { key: 'pl_eqt', label: 'Equilibrium Temperature (K)', type: 'number', step: '1' }
+            ],
+            star: [
+                { key: 'st_teff', label: 'Star Temperature (K)', type: 'number', step: '1' },
+                { key: 'st_rad', label: 'Star Radius (Solar radii)', type: 'number', step: '0.01' },
+                { key: 'st_mass', label: 'Star Mass (Solar mass)', type: 'number', step: '0.01' },
+                { key: 'sy_dist', label: 'Distance from Earth (parsec)', type: 'number', step: '0.01' }
+            ]
+        };
+        
+        fields += '<div class="row">';
+        
+        parameters[category].forEach(param => {
+            const value = planet[param.key] !== undefined ? planet[param.key] : '';
+            const originalValue = value;
+            
+            fields += `
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">${param.label}</label>
+                    <div class="input-group">
+                        <input type="${param.type}" 
+                               class="form-control parameter-field" 
+                               data-planet="${planet.pl_name}" 
+                               data-param="${param.key}" 
+                               data-original="${originalValue}"
+                               value="${value}" 
+                               step="${param.step}"
+                               ${param.min ? `min="${param.min}"` : ''}
+                               ${param.max ? `max="${param.max}"` : ''}>
+                        <button class="btn btn-outline-secondary reset-param-btn" type="button" title="Reset to original value">↺</button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        fields += '</div>';
+        
+        return fields;
+    }
+    
+    // Configurar event listeners para os campos de parâmetros
+    function setupParameterFields() {
+        // Reset individual parameter
+        document.querySelectorAll('.reset-param-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const input = this.parentElement.querySelector('input');
+                input.value = input.dataset.original;
+                input.classList.remove('modified-parameter');
+                updateParameterOverrides();
+            });
+        });
+        
+        // Highlight modified fields
+        document.querySelectorAll('.parameter-field').forEach(field => {
+            field.addEventListener('change', function() {
+                if (this.value != this.dataset.original) {
+                    this.classList.add('modified-parameter');
+                } else {
+                    this.classList.remove('modified-parameter');
+                }
+                updateParameterOverrides();
+            });
+        });
+        
+        // Reset all parameters button
+        document.getElementById('reset-parameters-btn').addEventListener('click', function() {
+            if (confirm('Reset all parameters to original values?')) {
+                document.querySelectorAll('.parameter-field').forEach(field => {
+                    field.value = field.dataset.original;
+                    field.classList.remove('modified-parameter');
+                });
+                updateParameterOverrides();
+            }
+        });
+    }
+    
+    // Atualizar o campo oculto de parameter_overrides
+    function updateParameterOverrides() {
+        const overrides = {};
+        
+        document.querySelectorAll('.parameter-field.modified-parameter').forEach(field => {
+            const planetName = field.dataset.planet;
+            const paramKey = field.dataset.param;
+            const paramValue = field.value;
+            
+            if (!overrides[planetName]) {
+                overrides[planetName] = {};
+            }
+            
+            overrides[planetName][paramKey] = paramValue;
+        });
+        
+        // Converter para o formato esperado pelo backend
+        let overridesText = '';
+        for (const planet in overrides) {
+            let paramPairs = [];
+            for (const param in overrides[planet]) {
+                paramPairs.push(`${param}=${overrides[planet][param]}`);
+            }
+            if (paramPairs.length > 0) {
+                overridesText += `${planet}: ${paramPairs.join('; ')}\n`;
+            }
+        }
+        
+        document.getElementById('parameter-overrides-hidden').value = overridesText;
+    }
 });
 </script>
+
+<!-- Estilos adicionais -->
+<style>
+.modified-parameter {
+    background-color: #e8f4ff;
+    border-color: #007bff;
+}
+
+.planet-card {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.planet-card .card-header {
+    font-weight: bold;
+}
+
+.tab-content {
+    padding: 15px;
+    border: 1px solid #dee2e6;
+    border-top: none;
+    border-radius: 0 0 0.25rem 0.25rem;
+}
+</style>
 {% endblock %}
