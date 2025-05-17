@@ -6,10 +6,13 @@ from datetime import datetime
 import logging
 from jinja2 import Environment, FileSystemLoader
 
-from app.forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm
+
 from lifesearch.data import fetch_exoplanet_data_api, load_hwc_catalog, load_hzgallery_catalog, merge_data_sources, normalize_name
 from lifesearch.reports import plot_habitable_zone, plot_scores_comparison, generate_planet_report_html, generate_summary_report_html, generate_combined_report_html
 from lifesearch.lifesearch_main import process_planet_data
+from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm # Ajuste conforme necessário
+#from .utils import normalize_name, DEFAULT_HABITABILITY_WEIGHTS, DEFAULT_PHI_WEIGHTS # Ajuste
+from lifesearch.data import load_hwc_catalog, load_hzgallery_catalog # Ajuste
 import requests
 
 logger = logging.getLogger(__name__)
@@ -103,6 +106,7 @@ def configure():
 
 @app.route("/results")
 def results():
+    logger = current_app.logger # Use o logger da aplicação Flask
     planet_names_list = session.get("planet_names_list", [])
     parameter_overrides_input = session.get("parameter_overrides_input", "")
     habitability_weights = session.get("habitability_weights", DEFAULT_HABITABILITY_WEIGHTS)
@@ -110,7 +114,7 @@ def results():
 
     if not planet_names_list:
         flash("No planets to process. Please perform a new search.", "warning")
-        return redirect(url_for("index"))
+        return redirect(url_for("index")) # ou url_for("index")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_results_dir_name = f"lifesearch_results_{timestamp}"
@@ -124,10 +128,11 @@ def results():
         os.makedirs(absolute_charts_output_dir)
 
     template_env = get_template_env()
+    # Assegure-se que DATA_DIR está configurado corretamente em config.py
     hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
     hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
 
-    all_planets_processed_data_for_summary = [] # For summary/combined reports
+    all_planets_processed_data_for_summary = [] 
     report_links = []
     user_overrides = {}
 
@@ -148,7 +153,7 @@ def results():
                     except ValueError:
                         user_overrides[planet_key][key.strip()] = value.strip()
         except Exception as e:
-            logger.error(f"Error parsing parameter overrides: {e}")
+            logger.error(f"Error parsing parameter overrides: {e}", exc_info=True)
             flash(f"Error processing parameter overrides: {e}", "danger")
 
     for planet_name in planet_names_list:
@@ -156,66 +161,92 @@ def results():
         api_data = fetch_exoplanet_data_api(planet_name)
         
         if api_data is None:
-            logger.warning(f"Could not fetch API data for {planet_name}. Skipping.")
+            logger.warning(f"Could not fetch API data for {planet_name}. Skipping individual report, but will be included in combined if possible.")
             flash(f"Could not retrieve API data for {planet_name}.", "warning")
-            continue
+            # Criar um processed_result mínimo para este planeta
+            processed_result = {
+                "planet_data_dict": {"pl_name": planet_name, "classification": "N/A - API Data Missing", "hostname": "N/A"},
+                "scores_for_report": {}, "sephi_scores_for_report": {}, "hz_data_tuple": None, "star_info": {}
+            }
+            all_planets_processed_data_for_summary.append(processed_result)
+            continue # Pula para o próximo planeta para relatórios individuais
 
         current_planet_overrides = user_overrides.get(normalize_name(planet_name), {})
         if current_planet_overrides:
             logger.info(f"Applying overrides for {planet_name}: {current_planet_overrides}")
             for key, value in current_planet_overrides.items():
-                api_data[key] = value # Apply override to the fetched API data
+                api_data[key] = value 
         
         if "pl_name" not in api_data or pd.isna(api_data.get("pl_name")):
-            api_data["pl_name"] = planet_name # Ensure pl_name is set
+            api_data["pl_name"] = planet_name 
 
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
-        # Pass the potentially overridden api_data to merge_data_sources
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
         
-        # Pass combined_data (which includes API data and overrides) to process_planet_data
         processed_result = process_planet_data(normalized_planet_name, combined_data, {"habitability": habitability_weights, "phi": phi_weights})
-        if not processed_result:
-            flash(f"Failed to process data for {planet_name}.", "danger")
-            continue
-
-        scores_for_report = processed_result["scores_for_report"]
-        sephi_scores_for_report = processed_result["sephi_scores_for_report"]
-        hz_data_for_plot = processed_result["hz_data_tuple"]
-        planet_data_dict_for_report = processed_result["planet_data_dict"]
-
-        planet_name_slug = secure_filename(normalized_planet_name.replace(" ", "_"))
-        plots = {}
-
-        hz_plot_filename = plot_habitable_zone(planet_data_dict_for_report, planet_data_dict_for_report.get("star_info",{}), hz_data_for_plot, absolute_charts_output_dir, planet_name_slug)
-        if hz_plot_filename:
-            plots["habitable_zone_plot"] = os.path.join("charts", hz_plot_filename).replace("\\", "/")
-
-        scores_plot_filename = plot_scores_comparison(scores_for_report, absolute_charts_output_dir, planet_name_slug)
-        if scores_plot_filename:
-            plots["scores_plot"] = os.path.join("charts", scores_plot_filename).replace("\\", "/")
-
-        report_html_abs_path = generate_planet_report_html(planet_data_dict_for_report, scores_for_report, sephi_scores_for_report, plots, template_env, absolute_session_results_dir, planet_name_slug)
         
-        if report_html_abs_path:
-            report_filename = os.path.basename(report_html_abs_path)
-            report_links.append({
-                "name": f"Individual Report: {planet_data_dict_for_report.get("pl_name", planet_name)}",
-                "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=report_filename)
-            })
-            # Append the full processed_result for summary/combined reports
-            all_planets_processed_data_for_summary.append(processed_result)
-        else:
-            flash(f"Failed to generate report for {planet_name}.", "danger")
+        if not processed_result:
+            logger.warning(f"Failed to process data for {planet_name}. Creating default/minimal result for combined reports.")
+            processed_result = {
+                "planet_data_dict": {"pl_name": planet_name, "classification": "N/A - Processing Failed", "hostname": "N/A"},
+                "scores_for_report": {}, "sephi_scores_for_report": {}, "hz_data_tuple": None, "star_info": {}
+            }
+            flash(f"Limited data or processing error for {planet_name}. Report may be incomplete or missing.", "warning")
+        
+        # Mesmo com dados limitados/falha, adicione à lista para tentativa de relatório combinado
+        all_planets_processed_data_for_summary.append(processed_result)
 
-    if len(all_planets_processed_data_for_summary) > 0:
-        # Pass all_planets_processed_data_for_summary to summary/combined generators
+        # Prosseguir com relatórios individuais apenas se processed_result for válido
+        if processed_result and processed_result.get("planet_data_dict"):
+            scores_for_report = processed_result.get("scores_for_report", {})
+            sephi_scores_for_report = processed_result.get("sephi_scores_for_report", {})
+            hz_data_for_plot = processed_result.get("hz_data_tuple")
+            planet_data_dict_for_report = processed_result.get("planet_data_dict", {}) # Já é o dict
+
+            planet_name_slug = secure_filename(normalized_planet_name.replace(" ", "_"))
+            plots = {}
+
+            hz_plot_filename = plot_habitable_zone(planet_data_dict_for_report, planet_data_dict_for_report.get("star_info",{}), hz_data_for_plot, absolute_charts_output_dir, planet_name_slug)
+            if hz_plot_filename:
+                plots["habitable_zone_plot"] = os.path.join("charts", hz_plot_filename).replace("\\", "/")
+
+            scores_plot_filename = plot_scores_comparison(scores_for_report, absolute_charts_output_dir, planet_name_slug)
+            if scores_plot_filename:
+                plots["scores_plot"] = os.path.join("charts", scores_plot_filename).replace("\\", "/")
+
+            # Supondo que generate_planet_report_html também foi ajustado para ser mais robusto
+            report_html_abs_path = generate_planet_report_html(
+                planet_data_dict_for_report, 
+                scores_for_report, 
+                sephi_scores_for_report, 
+                plots, 
+                template_env, 
+                absolute_session_results_dir, 
+                planet_name_slug
+            )
+            
+            if report_html_abs_path:
+                report_filename = os.path.basename(report_html_abs_path)
+                report_links.append({
+                    "name": f"Individual Report: {planet_data_dict_for_report.get('pl_name', planet_name)}",
+                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=report_filename) # ou "serve_generated_file"
+                })
+            else:
+                flash(f"Failed to generate individual report for {planet_name}.", "danger")
+        else:
+             logger.warning(f"Skipping individual report for {planet_name} due to previous processing issues.")
+
+
+    # Sempre tentar gerar relatórios combinados se houver algo para processar
+    if all_planets_processed_data_for_summary:
+        # Use as funções de geração de relatório (que devem ser as versões corrigidas)
+        # Ex: generate_summary_report_html_corrigido ou a versão original se ela foi substituída pela corrigida
         summary_report_abs_path = generate_summary_report_html(all_planets_processed_data_for_summary, template_env, absolute_session_results_dir)
         if summary_report_abs_path:
             summary_filename = os.path.basename(summary_report_abs_path)
             report_links.append({
                 "name": "Summary Report",
-                "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=summary_filename)
+                "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=summary_filename) # ou "serve_generated_file"
             })
         
         combined_report_abs_path = generate_combined_report_html(all_planets_processed_data_for_summary, template_env, absolute_session_results_dir)
@@ -223,15 +254,22 @@ def results():
             combined_filename = os.path.basename(combined_report_abs_path)
             report_links.append({
                 "name": "Combined Report",
-                "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=combined_filename)
+                "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=combined_filename) # ou "serve_generated_file"
             })
+    else:
+        logger.warning("No data processed for any planet, skipping combined reports.")
+
 
     if not report_links:
         flash("No reports were generated. Check logs for more details.", "warning")
-        return redirect(url_for("index"))
+        return redirect(url_for("index")) # ou url_for("index")
 
-    # Pass session_results_dir_name to results.html for plot URLs if needed there (though individual reports handle it now)
-    return render_template("results.html", title="Search Results", report_links=report_links, session_results_dir_name=session_results_dir_name)
+    return render_template(
+        "results.html", 
+        title="Search Results", 
+        report_links=report_links, 
+        session_results_dir_name=session_results_dir_name
+    )
 
 @app.route("/results_archive/<path:results_dir>/<path:filename>")
 def serve_generated_file(results_dir, filename):
