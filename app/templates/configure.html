@@ -5,48 +5,61 @@
     <h2>Configure Weights</h2>
     <p class="lead">Adjust weights (0.0 to 1.0) for each factor used in habitability calculations. Default values are 1.0 for general factors and 0.25 for PHI components.</p>
 
-    <!-- Nova seção para valores de referência -->
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white">
-            <h3 class="h5 mb-0">Reference Values</h3>
-        </div>
-        <div class="card-body">
-            {% if session.get('planet_names_list') %}
-                <div class="table-responsive">
-                    <table class="table table-striped">
-                        <thead>
+<!-- Nova seção para valores de referência -->
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h3 class="h5 mb-0">Reference Values</h3>
+    </div>
+    <div class="card-body">
+        {% if reference_values %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Planet</th>
+                            <th>ESI</th>
+                            <th>PHI</th>
+                            <th>Classification</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for planet in reference_values %}
                             <tr>
-                                <th>Planet</th>
-                                <th>ESI</th>
-                                <th>PHI</th>
-                                <th>Classification</th>
+                                <td>{{ planet.name }}</td>
+                                <td>{{ "%.2f"|format(planet.esi * 100) }}%</td>
+                                <td>{{ "%.2f"|format(planet.phi * 100) }}%</td>
+                                <td>{{ planet.classification }}</td>
                             </tr>
-                        </thead>
-                        <tbody id="reference-values-table">
-                            <!-- Será preenchido via JavaScript -->
-                            <tr>
-                                <td colspan="4" class="text-center">
-                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                        <span class="visually-hidden">Loading...</span>
-                                    </div>
-                                    Loading reference values...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            {% else %}
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle"></i> No planets selected. Search for planets first to see reference values.
-                </div>
-            {% endif %}
-            
-            <div class="mt-3">
-                <p><strong>Note:</strong> These values are calculated using the current weights. Adjusting weights below will affect these values in the generated reports.</p>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
+        {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No planets selected. Search for planets first to see reference values.
+            </div>
+        {% endif %}
+        
+        <div class="mt-3">
+            <p><strong>Note:</strong> These values are calculated using the current weights. Adjusting weights below will affect these values in the generated reports.</p>
         </div>
     </div>
+</div>
 
+<!-- Adicionar ao configure.html -->
+    <div class="mb-4">
+        <h3>Weights per Planet</h3>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="use-individual-weights" name="use-individual-weights" checked>
+            <label class="form-check-label" for="use-individual-weights">
+                Use individual weights per planet
+            </label>
+        </div>
+    
+        <div id="planet-weights-container" style="display: none;">
+        <!-- Será preenchido via JavaScript -->
+        </div>
+    </div>
     <!-- Formulário de pesos de habitabilidade -->
     <form method="POST" action="{{ url_for('configure') }}" novalidate>
         {{ hab_form.hidden_tag() }}
@@ -134,20 +147,6 @@
             </div>
         </div>
     </form>
-<!-- Adicionar ao configure.html -->
-    <div class="mb-4">
-        <h3>Weights per Planet</h3>
-        <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="use-individual-weights" name="use-individual-weights">
-            <label class="form-check-label" for="use-individual-weights">
-                Use individual weights per planet
-            </label>
-        </div>
-    
-        <div id="planet-weights-container" style="display: none;">
-        <!-- Será preenchido via JavaScript -->
-        </div>
-    </div>
 </div>
 {% endblock %}
 
@@ -240,7 +239,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            const tableBody = document.getElementById('reference-values-table');
+            const tableBody = document.getElementById('reference-values');
             tableBody.innerHTML = ''; // Limpa o conteúdo anterior
             
             if (data.planets && data.planets.length > 0) {
@@ -259,7 +258,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } catch (error) {
             console.error('Error loading reference values:', error);
-            document.getElementById('reference-values-table').innerHTML = `<tr><td colspan="4" class="text-center text-danger">Failed to load reference values: ${error.message}</td></tr>`;
+            document.getElementById('reference-values').innerHTML = `<tr><td colspan="4" class="text-center text-danger">Failed to load reference values: ${error.message}</td></tr>`;
         }
     }
 
