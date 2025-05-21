@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="alert alert-secondary d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-arrow-left-circle"></i> Want to edit planet names or parameters?</span>
+    <a href="{{ url_for('index') }}?restore=1" class="btn btn-outline-primary btn-sm">Back to Search</a>
+</div>
 <div class="pt-4">
     <h2>Configure Weights</h2>
     <p class="lead">Adjust weights (0.0 to 1.0) for each factor used in habitability calculations. Default values are 1.0 for general factors and 0.25 for PHI components.</p>
@@ -13,7 +17,7 @@
     <div class="card-body">
         {% if reference_values %}
             <div class="table-responsive">
-                <table class="table table-striped">
+                <table id="reference-values-table" class="table table-striped">
                     <thead>
                         <tr>
                             <th>Planet</th>
@@ -22,12 +26,12 @@
                             <th>Classification</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="reference_values">
                         {% for planet in reference_values %}
                             <tr>
                                 <td>{{ planet.name }}</td>
-                                <td>{{ "%.2f"|format(planet.esi * 100) }}%</td>
-                                <td>{{ "%.2f"|format(planet.phi * 100) }}%</td>
+                                <td>{{ "%.2f"|format(planet.esi) }}%</td>
+                                <td>{{ "%.2f"|format(planet.phi) }}%</td>
                                 <td>{{ planet.classification }}</td>
                             </tr>
                         {% endfor %}
@@ -46,114 +50,38 @@
     </div>
 </div>
 
-<!-- Adicionar ao configure.html -->
+    <!-- Seção para pesos individuais por planeta -->
     <div class="mb-4">
         <h3>Weights per Planet</h3>
         <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="use-individual-weights" name="use-individual-weights" checked>
+            <input class="form-check-input" type="checkbox" id="use-individual-weights" name="use-individual-weights">
             <label class="form-check-label" for="use-individual-weights">
-                Use individual weights per planet
+                Configure individual weights per planet
             </label>
         </div>
     
         <div id="planet-weights-container" style="display: none;">
-        <!-- Será preenchido via JavaScript -->
+            <!-- Será preenchido via JavaScript -->
+        </div>
+        <!-- Botão para salvar todos os pesos individuais -->
+        <div id="save-individual-weights-button-container" class="d-grid gap-2 col-6 mx-auto mt-3 mb-3" style="display: none;">
+             <button type="button" id="save-all-individual-weights-btn" class="btn btn-primary btn-lg">Save All Individual Planet Weights</button>
         </div>
     </div>
-    <!-- Formulário de pesos de habitabilidade -->
-    <form method="POST" action="{{ url_for('configure') }}" novalidate>
-        {{ hab_form.hidden_tag() }}
-        <div class="card mb-4">
-            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                <h3 class="h5 mb-0">Habitability Factors Weights (ESI, SPH, etc.)</h3>
-                <button type="button" class="btn btn-sm btn-outline-light reset-weights-btn" data-form="hab">Reset to Defaults</button>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    {% for field_name, field_obj in hab_form._fields.items() %}
-                        {% if field_name not in ["csrf_token", "submit_weights"] %}
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">{{ field_obj.label.text }}</label>
-                                <div class="input-group">
-                                    <input type="range" class="form-range weight-slider" 
-                                           min="0" max="1" step="0.01" 
-                                           data-target="{{ field_name }}"
-                                           value="{{ field_obj.data }}">
-                                    {{ field_obj(class="form-control weight-input" ~ (" is-invalid" if field_obj.errors else ""), 
-                                               style="width: 80px;", 
-                                               data_original=field_obj.default) }}
-                                </div>
-                                {% if field_obj.errors %}
-                                    <div class="invalid-feedback">
-                                        {% for error in field_obj.errors %}
-                                            <span>{{ error }}</span>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                                <small class="form-text text-muted weight-description" data-weight="{{ field_name }}">
-                                    <!-- Descrições serão adicionadas via JavaScript -->
-                                </small>
-                            </div>
-                        {% endif %}
-                    {% endfor %}
-                </div>
-                <div class="d-grid gap-2 col-6 mx-auto mt-3">
-                    {{ hab_form.submit_weights(class="btn btn-success btn-lg") }}
-                </div>
-            </div>
-        </div>
-    </form>
-
-    <!-- Formulário de pesos PHI -->
-    <form method="POST" action="{{ url_for('configure') }}" novalidate>
-        {{ phi_form.hidden_tag() }}
-        <div class="card mb-4">
-            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-                <h3 class="h5 mb-0">PHI Factors Weights (Planetary Habitability Index)</h3>
-                <button type="button" class="btn btn-sm btn-outline-light reset-weights-btn" data-form="phi">Reset to Defaults</button>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    {% for field_name, field_obj in phi_form._fields.items() %}
-                        {% if field_name not in ["csrf_token", "submit_phi_weights"] %}
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">{{ field_obj.label.text }}</label>
-                                <div class="input-group">
-                                    <input type="range" class="form-range weight-slider" 
-                                           min="0" max="1" step="0.01" 
-                                           data-target="{{ field_name }}"
-                                           value="{{ field_obj.data }}">
-                                    {{ field_obj(class="form-control weight-input" ~ (" is-invalid" if field_obj.errors else ""), 
-                                               style="width: 80px;",
-                                               data_original=field_obj.default) }}
-                                </div>
-                                {% if field_obj.errors %}
-                                    <div class="invalid-feedback">
-                                        {% for error in field_obj.errors %}
-                                            <span>{{ error }}</span>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                                <small class="form-text text-muted weight-description" data-weight="{{ field_name }}">
-                                    <!-- Descrições serão adicionadas via JavaScript -->
-                                </small>
-                            </div>
-                        {% endif %}
-                    {% endfor %}
-                </div>
-                <div class="d-grid gap-2 col-6 mx-auto mt-3">
-                    {{ phi_form.submit_phi_weights(class="btn btn-info btn-lg") }}
-                </div>
-            </div>
-        </div>
-    </form>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+// Data passed from Flask, parsed into JavaScript objects
+const DEFAULT_HAB_WEIGHTS = JSON.parse('{{ default_hab_weights_json|safe }}');
+const DEFAULT_PHI_WEIGHTS = JSON.parse('{{ default_phi_weights_json|safe }}');
+const CURRENT_GLOBAL_HAB_WEIGHTS = JSON.parse('{{ current_global_hab_weights_json|safe }}');
+const CURRENT_GLOBAL_PHI_WEIGHTS = JSON.parse('{{ current_global_phi_weights_json|safe }}');
+const CURRENT_PLANET_SPECIFIC_WEIGHTS = JSON.parse('{{ current_planet_specific_weights_json|safe }}');
+const USE_INDIVIDUAL_WEIGHTS_ON_LOAD = {{ use_individual_weights_val|lower }};
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Descrições dos pesos (código existente)
     const weightDescriptions = {
         'habitable_zone': 'How important is the planet\'s position in the habitable zone.',
         'size': 'How important is the planet\'s size relative to Earth.',
@@ -168,80 +96,278 @@ document.addEventListener('DOMContentLoaded', function() {
         'life_compounds': 'How important are compounds necessary for life (PHI).',
         'stable_orbit': 'How important is a stable orbit (PHI).'
     };
+
+    const habFactorDefinitions = [
+        { key: 'habitable_zone', label: 'Habitable Zone', defaultVal: DEFAULT_HAB_WEIGHTS['Habitable Zone'] || 1.0, min: 0, max: 1, step: 0.01 },
+        { key: 'size', label: 'Size', defaultVal: DEFAULT_HAB_WEIGHTS['Size'] || 1.0, min: 0, max: 1, step: 0.01 },
+        { key: 'density', label: 'Density', defaultVal: DEFAULT_HAB_WEIGHTS['Density'] || 1.0, min: 0, max: 1, step: 0.01 },
+        { key: 'atmosphere', label: 'Atmosphere', defaultVal: DEFAULT_HAB_WEIGHTS['Atmosphere'] || 1.0, min: 0, max: 1, step: 0.01 },
+        { key: 'water', label: 'Water', defaultVal: DEFAULT_HAB_WEIGHTS['Water'] || 1.0, min: 0, max: 1, step: 0.01 },
+        { key: 'presence_of_moons', label: 'Presence of Moons', defaultVal: DEFAULT_HAB_WEIGHTS['Presence of Moons'] || 1.0, min: 0, max: 1, step: 0.01 },
+        { key: 'magnetic_activity', label: 'Magnetic Activity', defaultVal: DEFAULT_HAB_WEIGHTS['Magnetic Activity'] || 1.0, min: 0, max: 1, step: 0.01 },
+        { key: 'system_age', label: 'System Age', defaultVal: DEFAULT_HAB_WEIGHTS['System Age'] || 1.0, min: 0, max: 1, step: 0.01 }
+    ];
+
+    const phiFactorDefinitions = [
+        { key: 'solid_surface', label: 'Solid Surface', defaultVal: DEFAULT_PHI_WEIGHTS['Solid Surface'] || 0.25, min: 0, max: 1, step: 0.01 },
+        { key: 'stable_energy', label: 'Stable Energy', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Energy'] || 0.25, min: 0, max: 1, step: 0.01 },
+        { key: 'life_compounds', label: 'Life Compounds', defaultVal: DEFAULT_PHI_WEIGHTS['Life Compounds'] || 0.25, min: 0, max: 1, step: 0.01 },
+        { key: 'stable_orbit', label: 'Stable Orbit', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Orbit'] || 0.25, min: 0, max: 1, step: 0.01 }
+    ];
+
+    const useIndividualWeightsCheckbox = document.getElementById('use-individual-weights');
+    const planetWeightsContainer = document.getElementById('planet-weights-container');
+    const saveButtonContainer = document.getElementById('save-individual-weights-button-container');
+
+    if (USE_INDIVIDUAL_WEIGHTS_ON_LOAD) {
+        useIndividualWeightsCheckbox.checked = true;
+        planetWeightsContainer.style.display = 'block';
+        saveButtonContainer.style.display = 'block';
+        loadPlanetWeightsUI();
+    }
     
-    // Preencher descrições (código existente)
-    document.querySelectorAll('.weight-description').forEach(elem => {
-        const weightKey = elem.dataset.weight;
-        if (weightDescriptions[weightKey]) {
-            elem.textContent = weightDescriptions[weightKey];
+    if (useIndividualWeightsCheckbox && planetWeightsContainer) { 
+        useIndividualWeightsCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                planetWeightsContainer.style.display = 'block';
+                saveButtonContainer.style.display = 'block';
+                loadPlanetWeightsUI();
+            } else {
+                planetWeightsContainer.style.display = 'none';
+                saveButtonContainer.style.display = 'none';
+            }
+        });
+    }
+
+    function normalizePlanetName(name) {
+        return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    function getWeightValue(planetNormalizedName, category, weightKey) {
+        const factorDef = (category === 'hab' ? habFactorDefinitions : phiFactorDefinitions).find(f => f.key === weightKey);
+        if (!factorDef) {
+            console.warn(`Factor definition not found for key: ${weightKey} in category: ${category}`);
+            return (category === 'hab' ? 1.0 : 0.25);
         }
-    });
-    
-    // Sincronizar sliders e campos de entrada (código existente)
-    document.querySelectorAll('.weight-slider').forEach(slider => {
-        const targetId = slider.dataset.target;
-        const inputField = document.querySelector(`input[name="${targetId}"]`);
+
+        const displayNameKey = factorDef.label;
+
+        if (CURRENT_PLANET_SPECIFIC_WEIGHTS &&
+            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] &&
+            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category] &&
+            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey] !== undefined) {
+            return CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey];
+        }
+
+        const globalCategoryWeights = category === 'hab' ? CURRENT_GLOBAL_HAB_WEIGHTS : CURRENT_GLOBAL_PHI_WEIGHTS;
+        if (globalCategoryWeights && globalCategoryWeights[displayNameKey] !== undefined) {
+            return globalCategoryWeights[displayNameKey];
+        }
         
-        slider.addEventListener('input', function() {
-            inputField.value = this.value;
-            highlightModifiedField(inputField);
-        });
-    });
+        return factorDef.defaultVal;
+    }
     
-    document.querySelectorAll('.weight-input').forEach(input => {
-        input.addEventListener('input', function() {
-            const targetName = this.name;
-            const slider = document.querySelector(`.weight-slider[data-target="${targetName}"]`);
-            slider.value = this.value;
-            highlightModifiedField(this);
-        });
-    });
-    
-    // Destacar campos modificados (código existente)
-    function highlightModifiedField(field) {
-        if (field.value != field.dataset.original) {
-            field.classList.add('modified-parameter');
-        } else {
-            field.classList.remove('modified-parameter');
+    async function loadPlanetWeightsUI() {
+        try {
+            const response = await fetch('/api/planets/reference-values'); 
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            
+            if (!planetWeightsContainer) return;
+
+            if (data.planets && data.planets.length > 0) {
+                let html = '';
+                data.planets.forEach((planet, index) => {
+                    const planetNormalizedName = normalizePlanetName(planet.name);
+
+                    html += `
+                        <div class="card mb-3 planet-weight-card" data-planet-normalized-name="${planetNormalizedName}" data-planet-display-name="${planet.name}">
+                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                <h5>${planet.name}</h5>
+                                <button type="button" class="btn btn-sm btn-outline-light reset-planet-weights-btn" data-planet-normalized-name="${planetNormalizedName}">Reset to Defaults</button>
+                            </div>
+                            <div class="card-body">
+                                <ul class="nav nav-tabs" role="tablist">
+                                    <li class="nav-item" role="presentation">
+                                        <button class="nav-link active" id="hab-tab-${index}" data-bs-toggle="tab" data-bs-target="#hab-content-${index}" type="button" role="tab">Habitability Factors</button>
+                                    </li>
+                                    <li class="nav-item" role="presentation">
+                                        <button class="nav-link" id="phi-tab-${index}" data-bs-toggle="tab" data-bs-target="#phi-content-${index}" type="button" role="tab">PHI Factors</button>
+                                    </li>
+                                </ul>
+                                <div class="tab-content pt-3">
+                                    <div class="tab-pane fade show active" id="hab-content-${index}" role="tabpanel">
+                                        <div class="row">`;
+                    habFactorDefinitions.forEach(factor => {
+                        const currentValue = getWeightValue(planetNormalizedName, 'hab', factor.key);
+                        html += `
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">${factor.label}</label>
+                                <div class="input-group">
+                                    <input type="range" class="form-range planet-weight-slider" 
+                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
+                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}">
+                                    <input type="number" class="form-control planet-weight-input" 
+                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
+                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}" style="width: 80px;">
+                                </div>
+                                <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
+                            </div>`;
+                    });
+                    html += `       </div>
+                                </div>
+                                <div class="tab-pane fade" id="phi-content-${index}" role="tabpanel">
+                                    <div class="row">`;
+                    phiFactorDefinitions.forEach(factor => {
+                        const currentValue = getWeightValue(planetNormalizedName, 'phi', factor.key);
+                        html += `
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">${factor.label}</label>
+                                <div class="input-group">
+                                    <input type="range" class="form-range planet-weight-slider" 
+                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
+                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}">
+                                    <input type="number" class="form-control planet-weight-input" 
+                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
+                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}" style="width: 80px;">
+                                </div>
+                                <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
+                            </div>`;
+                    });
+                    html += `       </div>
+                                </div>
+                            </div>
+                        </div>`;
+                });
+                planetWeightsContainer.innerHTML = html;
+                setupPlanetWeightControls();
+                setupResetButtons();
+            } else {
+                planetWeightsContainer.innerHTML = '<div class="alert alert-info">No exoplanets selected. Make a search first.</div>';
+            }
+        } catch (error) {
+            console.error('Error loading planet weights UI:', error);
+            if (planetWeightsContainer) {
+                planetWeightsContainer.innerHTML = `<div class="alert alert-danger">Error loading planet weights: ${error.message}</div>`;
+            }
         }
     }
-    
-    // Botões de reset (código existente)
-    document.querySelectorAll('.reset-weights-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const formType = this.dataset.form;
-            let defaultValues;
+
+    function setupPlanetWeightControls() {
+        document.querySelectorAll('.planet-weight-slider').forEach(slider => {
+            const planetName = slider.dataset.planetNormalizedName;
+            const weightKey = slider.dataset.weightKey;
+            const weightType = slider.dataset.weightType;
+            const inputField = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
             
-            if (formType === 'hab') {
-                defaultValues = { /* ... valores default ... */ };
-            } else if (formType === 'phi') {
-                defaultValues = { /* ... valores default ... */ };
-            }
-            
-            for (const [key, value] of Object.entries(defaultValues)) {
-                const input = document.querySelector(`input[name="${key}"]`);
-                const slider = document.querySelector(`.weight-slider[data-target="${key}"]`);
-                if (input) input.value = value; input.classList.remove('modified-parameter');
-                if (slider) slider.value = value;
+            if (inputField) {
+                slider.addEventListener('input', function() { inputField.value = this.value; });
             }
         });
-    });
-    
-    // Carregar valores de referência se houver planetas selecionados (código existente)
-    if (document.getElementById('reference-values-table')) {
-        loadReferenceValues();
+        
+        document.querySelectorAll('.planet-weight-input').forEach(input => {
+            const planetName = input.dataset.planetNormalizedName;
+            const weightKey = input.dataset.weightKey;
+            const weightType = input.dataset.weightType;
+            const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
+            
+            if (slider) {
+                input.addEventListener('input', function() { slider.value = this.value; });
+            }
+        });
     }
-    
-    async function loadReferenceValues() { // Definição da função existente
+
+    function setupResetButtons() {
+        document.querySelectorAll('.reset-planet-weights-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const planetNormalizedName = this.dataset.planetNormalizedName;
+                
+                habFactorDefinitions.forEach(factor => {
+                    const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
+                    const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
+                    if (slider) slider.value = factor.defaultVal;
+                    if (input) input.value = factor.defaultVal;
+                });
+
+                phiFactorDefinitions.forEach(factor => {
+                    const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
+                    const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
+                    if (slider) slider.value = factor.defaultVal;
+                    if (input) input.value = factor.defaultVal;
+                });
+            });
+        });
+    }
+
+    const saveAllButton = document.getElementById('save-all-individual-weights-btn');
+    if (saveAllButton) {
+        saveAllButton.addEventListener('click', async function() {
+            const useIndividual = useIndividualWeightsCheckbox.checked;
+            const collectedWeights = {};
+
+            document.querySelectorAll('.planet-weight-card').forEach(card => {
+                const planetNormalizedName = card.dataset.planetNormalizedName;
+
+                let currentPlanetHabWeights = {};
+                let currentPlanetPhiWeights = {};
+
+                habFactorDefinitions.forEach(factorDef => {
+                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="hab"][data-weight-key="${factorDef.key}"]`);
+                    if (inputElement) {
+                        currentPlanetHabWeights[factorDef.label] = parseFloat(inputElement.value);
+                    }
+                });
+
+                phiFactorDefinitions.forEach(factorDef => {
+                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
+                    if (inputElement) {
+                        currentPlanetPhiWeights[factorDef.label] = parseFloat(inputElement.value);
+                    }
+                });
+                
+                collectedWeights[planetNormalizedName] = {
+                    habitability: currentPlanetHabWeights,
+                    phi: currentPlanetPhiWeights
+                };
+            });
+            
+            try {
+                const response = await fetch('/api/save-planet-weights', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        use_individual_weights: useIndividual,
+                        planet_weights: collectedWeights
+                    })
+                });
+                if (!response.ok) throw new Error(`Failed to save weights: ${response.status}`);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert('Individual planet weights saved successfully!');
+                    Object.assign(CURRENT_PLANET_SPECIFIC_WEIGHTS, collectedWeights);
+                    // Recarregar a tabela de valores de referência
+                    await loadReferenceValues();
+                } else {
+                    alert('Error saving weights.');
+                }
+            } catch (error) {
+                console.error('Error saving planet weights:', error);
+                alert('Error saving weights: ' + error.message);
+            }
+        });
+    }
+
+    // Função para recarregar a tabela de valores de referência
+    async function loadReferenceValues() {
         try {
-            const response = await fetch('/api/planets/reference-values');
+            const response = await fetch('/api/planets/reference_values');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            const tableBody = document.getElementById('reference-values');
-            tableBody.innerHTML = ''; // Limpa o conteúdo anterior
-            
+            const tableBody = document.getElementById('reference_values');
+            tableBody.innerHTML = '';
+
             if (data.planets && data.planets.length > 0) {
                 data.planets.forEach(planet => {
                     const row = document.createElement('tr');
@@ -254,142 +380,29 @@ document.addEventListener('DOMContentLoaded', function() {
                     tableBody.appendChild(row);
                 });
             } else {
-                tableBody.innerHTML = `<tr><td colspan="4" class="text-center">No reference data available</td></tr>`;
+                tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No reference data available</td></tr>';
             }
         } catch (error) {
             console.error('Error loading reference values:', error);
-            document.getElementById('reference-values').innerHTML = `<tr><td colspan="4" class="text-center text-danger">Failed to load reference values: ${error.message}</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Failed to load reference values: ${error.message}</td></tr>`;
         }
     }
 
-    // --- SEU NOVO CÓDIGO PARA PESOS INDIVIDUAIS COMEÇA AQUI ---
-    // (integrado DENTRO do DOMContentLoaded existente)
-
-    const useIndividualWeights = document.getElementById('use-individual-weights');
-    const planetWeightsContainer = document.getElementById('planet-weights-container');
-    
-    // Adicionar verificação para evitar erro se o elemento não existir (boa prática)
-    if (useIndividualWeights && planetWeightsContainer) { 
-        useIndividualWeights.addEventListener('change', function() {
-            if (this.checked) {
-                planetWeightsContainer.style.display = 'block';
-                loadPlanetWeightsUI();
-            } else {
-                planetWeightsContainer.style.display = 'none';
-            }
-        });
+    // Carregar valores de referência apenas se a tabela estiver vazia
+    const existingRows = document.querySelectorAll('#reference_values tr');
+    if (existingRows.length === 0 && document.getElementById('reference-values-table')) {
+        loadReferenceValues();
     }
-    
-    async function loadPlanetWeightsUI() {
-        try {
-            // A rota /api/planets/reference-values é chamada aqui novamente.
-            // Isso é intencional conforme o arquivo "Correções Propostas".
-            const response = await fetch('/api/planets/reference-values'); 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (planetWeightsContainer) { // Verificar se o container existe
-                if (data.planets && data.planets.length > 0) {
-                    let html = '';
-                    data.planets.forEach((planet, index) => {
-                        html += `
-                            <div class="card mb-3 planet-weight-card">
-                                <div class="card-header bg-primary text-white">
-                                    <h5>${planet.name}</h5>
-                                </div>
-                                <div class="card-body">
-                                    <ul class="nav nav-tabs" role="tablist">
-                                        <li class="nav-item" role="presentation">
-                                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#hab-${index}" type="button">Habitability Factors</button>
-                                        </li>
-                                        <li class="nav-item" role="presentation">
-                                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#phi-${index}" type="button">PHI Factors</button>
-                                        </li>
-                                    </ul>
-                                    <div class="tab-content pt-3">
-                                        <div class="tab-pane fade show active" id="hab-${index}">
-                                            <div class="mb-3">
-                                                <label class="form-label">Habitable Zone</label>
-                                                <input type="range" class="form-range planet-weight-slider" 
-                                                       data-planet="${planet.name}" data-weight="habitable_zone" 
-                                                       min="0" max="2" step="0.1" value="1.0">
-                                                <input type="number" class="form-control planet-weight-input" 
-                                                       data-planet="${planet.name}" data-weight="habitable_zone" 
-                                                       min="0" max="2" step="0.1" value="1.0">
-                                            </div>
-                                            <!-- Adicionar outros controles de peso de habitabilidade -->
-                                        </div>
-                                        <div class="tab-pane fade" id="phi-${index}">
-                                            <div class="mb-3">
-                                                <label class="form-label">Solid Surface</label>
-                                                <input type="range" class="form-range planet-weight-slider" 
-                                                       data-planet="${planet.name}" data-weight="solid_surface" 
-                                                       min="0" max="1" step="0.05" value="0.25">
-                                                <input type="number" class="form-control planet-weight-input" 
-                                                       data-planet="${planet.name}" data-weight="solid_surface" 
-                                                       min="0" max="1" step="0.05" value="0.25">
-                                            </div>
-                                            <!-- Adicionar outros controles de peso de PHI -->
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    });
-                    planetWeightsContainer.innerHTML = html;
-                    setupPlanetWeightControls();
-                } else {
-                    planetWeightsContainer.innerHTML = '<div class="alert alert-info">No exoplanets selected. Make a search first.</div>';
-                }
-            }
-        } catch (error) {
-            console.error('Error loading planet weights UI:', error);
-            if (planetWeightsContainer) { // Verificar se o container existe
-                planetWeightsContainer.innerHTML = `<div class="alert alert-danger">Error loading planet weights: ${error.message}</div>`;
-            }
-        }
-    }
-    
-    function setupPlanetWeightControls() {
-        document.querySelectorAll('.planet-weight-slider').forEach(slider => {
-            const planetName = slider.dataset.planet;
-            const weightKey = slider.dataset.weight;
-            const inputField = document.querySelector(`.planet-weight-input[data-planet="${planetName}"][data-weight="${weightKey}"]`);
-            
-            if (inputField) { // Verificar se o inputField existe
-                slider.addEventListener('input', function() {
-                    inputField.value = this.value;
-                });
-            }
-        });
-        
-        document.querySelectorAll('.planet-weight-input').forEach(input => {
-            const planetName = input.dataset.planet;
-            const weightKey = input.dataset.weight;
-            const slider = document.querySelector(`.planet-weight-slider[data-planet="${planetName}"][data-weight="${weightKey}"]`);
-            
-            if (slider) { // Verificar se o slider existe
-                input.addEventListener('input', function() {
-                    slider.value = this.value;
-                });
-            }
-        });
-    }
-
-
-}); 
+});
 </script>
 
 <style>
-.modified-parameter {
+.planet-weight-slider {
     background-color: #e8f4ff;
     border-color: #007bff;
 }
 
-.weight-input {
+.planet-weight-input {
     text-align: center;
 }
 

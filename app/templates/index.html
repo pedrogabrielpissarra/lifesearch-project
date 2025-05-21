@@ -201,8 +201,20 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('loading-indicator').style.display = 'none';
             document.getElementById('planets-parameters-container').style.display = 'block';
     
+
             // Preencher campo oculto com nomes dos planetas
             document.getElementById('planet-names-hidden').value = planetNames.join(',');
+
+            // Salvar os planetas na sessão para que /configure funcione
+            await fetch('/api/save-planets-to-session', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ planet_names: planetNames })
+            });
+
     
         } catch (error) {
             console.error('Error fetching planet data:', error);
@@ -396,6 +408,47 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('parameter-overrides-hidden').value = overridesText;
     }
 });
+
+    // Recarregar planetas da sessão, se existirem
+    (async function autoReloadPlanetsFromSession() {
+        try {
+            const planetTags = document.getElementById('planet-names-input').value;
+            if (!planetTags) return;
+
+            const planetNames = planetTags.split(',').map(p => p.trim()).filter(Boolean);
+            if (planetNames.length === 0) return;
+
+            // Mostrar loading
+            document.getElementById('loading-indicator').style.display = 'block';
+            document.getElementById('planets-parameters-container').style.display = 'none';
+
+            const csrfToken = document.querySelector('#planet-search-form input[name="csrf_token"]').value;
+
+            const response = await fetch('/api/planets/parameters', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ planet_names: planetNames })
+            });
+
+            if (!response.ok) throw new Error(await response.text());
+
+            const data = await response.json();
+
+            renderPlanetCards(data.planets);
+
+            document.getElementById('loading-indicator').style.display = 'none';
+            document.getElementById('planets-parameters-container').style.display = 'block';
+
+            document.getElementById('planet-names-hidden').value = planetNames.join(',');
+        } catch (error) {
+            console.error('Erro ao recarregar planetas da sessão:', error);
+            document.getElementById('loading-indicator').style.display = 'none';
+        }
+    })();
+
 </script>
 
 <!-- Estilos adicionais -->
