@@ -280,10 +280,10 @@ def get_planet_reference_values():
             scores = processed_result.get("scores_for_report", {})
             
             # Logar os scores retornados
-            logger.info(f"API reference_values - Scores para {normalized_planet_name}: {scores}")
+            logger.info(f"API reference_values - Scores for {normalized_planet_name}: {scores}")
             
-            # CORREÇÃO: Extração robusta de ESI - Usando a chave 'ESI' em maiúsculo
-            esi_data_api = scores.get("ESI")
+            # Extração robusta de ESI
+            esi_data_api = scores.get("esi")
             if isinstance(esi_data_api, tuple):
                 esi_val_api = esi_data_api[0]
             elif isinstance(esi_data_api, (float, int)):
@@ -291,8 +291,8 @@ def get_planet_reference_values():
             else:
                 esi_val_api = 0.0
             
-            # CORREÇÃO: Extração robusta de PHI - Usando a chave 'PHI' em maiúsculo
-            phi_data_api = scores.get("PHI")
+            # Extração robusta de PHI
+            phi_data_api = scores.get("phi")
             if isinstance(phi_data_api, tuple):
                 phi_val_api = phi_data_api[0]
             elif isinstance(phi_data_api, (float, int)):
@@ -342,7 +342,6 @@ def results():
         os.makedirs(absolute_charts_output_dir)
 
     template_env = get_template_env()
-    # Assegure-se que DATA_DIR está configurado corretamente em config.py
     hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
     hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
 
@@ -375,15 +374,14 @@ def results():
         api_data = fetch_exoplanet_data_api(planet_name)
         
         if api_data is None:
-            logger.warning(f"Could not fetch API data for {planet_name}. Skipping individual report, but will be included in combined if possible.")
+            logger.warning(f"Could not fetch API data for {planet_name}. Skipping individual report.")
             flash(f"Could not retrieve API data for {planet_name}.", "warning")
-            # Criar um processed_result mínimo para este planeta
             processed_result = {
                 "planet_data_dict": {"pl_name": planet_name, "classification": "N/A - API Data Missing", "hostname": "N/A"},
                 "scores_for_report": {}, "sephi_scores_for_report": {}, "hz_data_tuple": None, "star_info": {}
             }
             all_planets_processed_data_for_summary.append(processed_result)
-            continue # Pula para o próximo planeta para relatórios individuais
+            continue
 
         current_planet_overrides = user_overrides.get(normalize_name(planet_name), {})
         if current_planet_overrides:
@@ -397,7 +395,6 @@ def results():
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
 
-        # --- CORREÇÃO: Definir os pesos a serem usados para este planeta ---
         current_hab_weights = global_habitability_weights
         current_phi_weights = global_phi_weights
 
@@ -408,23 +405,21 @@ def results():
                 if 'habitability' in planet_specific_weights_entry and planet_specific_weights_entry['habitability'] is not None:
                     current_hab_weights = planet_specific_weights_entry['habitability']
                     logger.info(f"Using individual habitability weights for {normalized_planet_name}")
-                else: # Se a chave 'habitability' não existir ou for None, mantém global
+                else:
                     logger.info(f"Individual habitability weights not found or None for {normalized_planet_name}, using global.")
                 
                 if 'phi' in planet_specific_weights_entry and planet_specific_weights_entry['phi'] is not None:
                     current_phi_weights = planet_specific_weights_entry['phi']
                     logger.info(f"Using individual PHI weights for {normalized_planet_name}")
-                else: # Se a chave 'phi' não existir ou for None, mantém global
+                else:
                     logger.info(f"Individual PHI weights not found or None for {normalized_planet_name}, using global.")
             else:
                 logger.warning(f"Individual weights entry for {normalized_planet_name} is not a dict: {planet_specific_weights_entry}. Using global weights.")
-        elif use_individual_weights: # Se use_individual_weights é True mas o planeta não está no mapa
+        elif use_individual_weights:
             logger.info(f"Individual weights enabled, but no entry found for {normalized_planet_name}. Using global weights.")
-        else: # Se use_individual_weights é False
+        else:
             logger.info(f"Using global weights for {normalized_planet_name} (individual weights disabled).")
-        # --- FIM DA CORREÇÃO ---
         
-        # Chamada corrigida para process_planet_data
         processed_result = process_planet_data(
             normalized_planet_name, 
             combined_data, 
@@ -432,29 +427,23 @@ def results():
         )
         
         if not processed_result:
-            # ... (lógica existente) ...
-            processed_result = { # Garante que processed_result exista para append
+            logger.warning(f"Processing failed or returned no data for {planet_name}. Creating placeholder.")
+            processed_result = {
                 "planet_data_dict": {"pl_name": normalized_planet_name, "classification": "N/A - Processing Failed", "hostname": "N/A"},
                 "scores_for_report": {}, "sephi_scores_for_report": {}, "hz_data_tuple": None, "star_info": {}
             }
             all_planets_processed_data_for_summary.append(processed_result)
-            flash(f"Error processing data for {planet_name}. Check logs for details.", "danger")
+            flash(f"Error processing data for {planet_name}. Check logs for details.", "warning")
             continue
-        
-        # Adicionar à lista para o relatório de resumo
-        all_planets_processed_data_for_summary.append(processed_result)
-        
-        # Gerar relatório individual para este planeta
+
+        # Gerar gráficos para o relatório
         planet_data_dict = processed_result.get("planet_data_dict", {})
         scores_for_report = processed_result.get("scores_for_report", {})
         sephi_scores_for_report = processed_result.get("sephi_scores_for_report", {})
         hz_data_tuple = processed_result.get("hz_data_tuple")
         star_info = processed_result.get("star_info", {})
         
-        # Gerar gráficos para o relatório
         plots = {}
-        
-        # Gráfico da zona habitável
         hz_plot_filename = plot_habitable_zone(
             planet_data_dict, star_info, hz_data_tuple, 
             absolute_charts_output_dir, normalized_planet_name
@@ -462,25 +451,21 @@ def results():
         if hz_plot_filename:
             plots["hz_plot"] = f"charts/{hz_plot_filename}"
         
-        # Gráfico de comparação de scores
         scores_plot_filename = plot_scores_comparison(
             scores_for_report, absolute_charts_output_dir, normalized_planet_name
         )
         if scores_plot_filename:
             plots["scores_plot"] = f"charts/{scores_plot_filename}"
         
-        # Gerar relatório HTML
+        # Gerar relatório individual
         try:
-            # CORREÇÃO: Remover o argumento extra 'timestamp' que estava causando o erro
-            # Antes: report_path = generate_planet_report_html(planet_data_dict, scores_for_report, sephi_scores_for_report, plots, template_env, absolute_session_results_dir, normalized_planet_name, timestamp)
-            # Depois: Usar apenas os 7 argumentos conforme a assinatura da função
             report_path = generate_planet_report_html(
-                planet_data_dict, 
-                scores_for_report, 
-                sephi_scores_for_report, 
-                plots, 
-                template_env, 
-                absolute_session_results_dir, 
+                planet_data_dict,
+                scores_for_report,
+                sephi_scores_for_report,
+                plots,
+                template_env,
+                absolute_session_results_dir,
                 normalized_planet_name
             )
             
@@ -488,61 +473,72 @@ def results():
                 report_filename = os.path.basename(report_path)
                 report_links.append({
                     "name": planet_data_dict.get("pl_name", normalized_planet_name),
-                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=report_filename)
+                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=report_filename),
+                    "type": "individual"
                 })
             else:
-                flash(f"Error generating report for {planet_name}.", "danger")
+                flash(f"Failed to generate individual report for {planet_name}.", "warning")
         except Exception as e:
-            logger.error(f"Error generating report for {planet_name}: {e}", exc_info=True)
-            flash(f"Error generating report for {planet_name}: {e}", "danger")
-    
-    # Gerar relatório de resumo
-    try:
-        summary_report_path = generate_summary_report_html(
-            all_planets_processed_data_for_summary, 
-            template_env, 
-            absolute_session_results_dir
-        )
+            logger.error(f"Error generating individual report for {planet_name}: {e}", exc_info=True)
+            flash(f"Error generating individual report for {planet_name}: {e}", "warning")
         
-        if summary_report_path:
-            summary_filename = os.path.basename(summary_report_path)
-            report_links.append({
-                "name": "Summary Report",
-                "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=summary_filename)
-            })
-        else:
-            flash("Error generating summary report.", "danger")
-    except Exception as e:
-        logger.error(f"Error generating summary report: {e}", exc_info=True)
-        flash(f"Error generating summary report: {e}", "danger")
-    
-    # Gerar relatório combinado
-    try:
-        combined_report_path = generate_combined_report_html(
-            all_planets_processed_data_for_summary, 
-            template_env, 
-            absolute_session_results_dir
-        )
+        all_planets_processed_data_for_summary.append(processed_result)
+
+    # Gerar relatórios de resumo e combinado
+    if all_planets_processed_data_for_summary:
+        logger.info(f"Attempting to generate summary and combined reports for {len(all_planets_processed_data_for_summary)} processed planet entries.")
         
-        if combined_report_path:
-            combined_filename = os.path.basename(combined_report_path)
-            report_links.append({
-                "name": "Combined Report",
-                "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=combined_filename)
-            })
-        else:
-            flash("Error generating combined report.", "danger")
-    except Exception as e:
-        logger.error(f"Error generating combined report: {e}", exc_info=True)
-        flash(f"Error generating combined report: {e}", "danger")
-    
-    # Renderizar a página de resultados
+        try:
+            summary_report_path = generate_summary_report_html(
+                all_planets_processed_data_for_summary, 
+                template_env, 
+                absolute_session_results_dir
+            )
+            if summary_report_path:
+                summary_filename = os.path.basename(summary_report_path)
+                report_links.append({
+                    "name": "Summary Report",
+                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=summary_filename),
+                    "type": "summary"
+                })
+                logger.info(f"Summary report generated: {summary_filename}")
+            else:
+                logger.warning("Failed to generate summary report.")
+                flash("Failed to generate the summary report.", "warning")
+        except Exception as e:
+            logger.error(f"Error generating summary report: {e}", exc_info=True)
+            flash(f"Error generating summary report: {e}", "warning")
+
+        try:
+            combined_report_path = generate_combined_report_html(
+                all_planets_processed_data_for_summary,
+                template_env,
+                absolute_session_results_dir
+            )
+            if combined_report_path:
+                combined_filename = os.path.basename(combined_report_path)
+                report_links.append({
+                    "name": "Combined Report",
+                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=combined_filename),
+                    "type": "combined"
+                })
+                logger.info(f"Combined report generated: {combined_filename}")
+            else:
+                logger.warning("Failed to generate combined report.")
+                flash("Failed to generate the combined report.", "warning")
+        except Exception as e:
+            logger.error(f"Error generating combined report: {e}", exc_info=True)
+            flash(f"Error generating combined report: {e}", "warning")
+    else:
+        logger.warning("No planet data was processed or all processing attempts failed. Skipping summary and combined reports.")
+        flash("No data was processed for any of the planets, or all processing failed. Summary and combined reports could not be generated.", "warning")
+
     return render_template(
-        "results.html", 
-        title="Results", 
+        "results.html",
+        title="Exoplanet Analysis Results",
         report_links=report_links,
-        planet_names=planet_names_list,
-        results_dir=session_results_dir_name
+        planets_data=all_planets_processed_data_for_summary,
+        session_dir=session_results_dir_name
     )
 
 @app.route("/results_archive/<path:results_dir>/<path:filename>")
@@ -631,6 +627,13 @@ def get_planet_parameters():
     
     return jsonify({'planets': planets_data_cleaned}) # Use a lista limpa
 
+@app.route('/api/clear-session', methods=['POST'])
+def clear_session():
+    session.pop("parameter_overrides_input", None)
+    session.pop("planet_weights", None)
+    session.pop("use_individual_weights", None)
+    # NÃO remove planet_names_list aqui
+    return jsonify({"status": "partial session cleared"})
 
 @app.route('/api/save-planet-weights', methods=['POST'])
 def save_planet_weights():
@@ -638,12 +641,16 @@ def save_planet_weights():
     use_individual_weights = data.get('use_individual_weights', False)
     planet_weights = data.get('planet_weights', {})
     
+    # Logar os pesos recebidos
+    logger.info(f"API save-planet-weights - Received: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
+    
     session['use_individual_weights'] = use_individual_weights
     
     if use_individual_weights and planet_weights:
         session['planet_weights'] = planet_weights
     
     return jsonify({'status': 'success'})
+
 
 @app.errorhandler(404)
 def page_not_found(e):
@@ -653,3 +660,14 @@ def page_not_found(e):
 def internal_server_error(e):
     logger.error(f"Internal server error: {e}", exc_info=True)
     return render_template("error.html", error_code=500, error_message="An internal server error occurred."), 500
+
+@app.route('/api/save-planets-to-session', methods=['POST'])
+def save_planets_to_session():
+    data = request.get_json()
+    planet_names = data.get("planet_names", [])
+    if planet_names:
+        session["planet_names_list"] = planet_names
+        current_app.logger.info(f"Saved planet_names_list to session: {planet_names}")
+        return jsonify({"status": "saved"})
+    return jsonify({"status": "no_planets"}), 400
+
