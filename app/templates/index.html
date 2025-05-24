@@ -137,91 +137,107 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Adicionar ao evento de clique do botão search-planets-btn
-    document.getElementById('search-planets-btn').addEventListener('click', async function() {
-        const planetNames = tagify.value.map(tag => tag.value);
+// Adicionar ao evento de clique do botão search-planets-btn
+document.getElementById('search-planets-btn').addEventListener('click', async function() {
+    const planetNames = tagify.value.map(tag => tag.value);
     
-        if (planetNames.length === 0) {
-            alert('Please enter at least one planet name.');
-            return;
-        }
+    if (planetNames.length === 0) {
+        alert('Please enter at least one planet name.');
+        return;
+    }
     
-        // Mostrar loading
-        document.getElementById('loading-indicator').style.display = 'block';
-        document.getElementById('planets-parameters-container').style.display = 'none';
+    // Mostrar loading
+    document.getElementById('loading-indicator').style.display = 'block';
+    document.getElementById('planets-parameters-container').style.display = 'none';
 
-        try {
-            // Limpar sessão anterior (nova requisição)
-            await fetch('/api/clear-session', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': document.querySelector('#planet-search-form input[name="csrf_token"]').value
-                }
-            });
+    try {
+        // Obter o token CSRF do formulário principal
+        const csrfToken = document.querySelector('#planet-search-form input[name="csrf_token"]').value;
 
-            // Obter o token CSRF do formulário principal
-            const csrfToken = document.querySelector('#planet-search-form input[name="csrf_token"]').value;
-
-            // Fazer requisição AJAX para obter dados dos planetas
-            const response = await fetch('/api/planets/parameters', {
+        // Evitar limpar planet_weights e use_individual_weights, se existirem
+        const sessionResponse = await fetch('/api/debug-session', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        });
+        const sessionData = await sessionResponse.json();
+        console.log('Session state before clear:', sessionData);
+        if (!sessionData.planet_weights && !sessionData.use_individual_weights) {
+            // Limpar sessão apenas se planet_weights e use_individual_weights não existirem
+            const clearResponse = await fetch('/api/clear-session', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRFToken': csrfToken
-                },
-                body: JSON.stringify({ planet_names: planetNames })
-            });
-    
-            // CORREÇÃO: Verificar se a resposta está OK e processar o JSON
-            if (!response.ok) {
-            // Tentar ler a mensagem de erro do servidor se houver
-                let errorMsg = `HTTP error! status: ${response.status}`;
-                try {
-                    const errorData = await response.json(); // Tenta parsear o erro como JSON
-                    errorMsg += `, message: ${errorData.error || JSON.stringify(errorData)}`;
-                } catch (e) {
-                // Se não for JSON, lê como texto
-                    errorMsg += `, response body: ${await response.text()}`;
                 }
-                throw new Error(errorMsg);
+            });
+            if (!clearResponse.ok) {
+                throw new Error(`Failed to clear session: ${clearResponse.status}`);
             }
+            console.log('Session cleared');
+        }
 
-            // CORREÇÃO: Extrair os dados JSON da resposta
-            const data = await response.json();
+        // Salvar os planetas na sessão
+        const saveResponse = await fetch('/api/save-planets-to-session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ planet_names: planetNames })
+        });
+        const saveResult = await saveResponse.json();
+        if (saveResult.status !== 'saved') {
+            throw new Error('Failed to save planet names to session');
+        }
+        console.log('Planets saved to session:', planetNames);
 
-            // Verificar se os dados dos planetas estão presentes
-            if (!data || !data.planets || !Array.isArray(data.planets)) {
-                throw new Error('Invalid response format: missing or malformed planets data');
+        // Fazer requisição AJAX para obter dados dos planetas
+        const response = await fetch('/api/planets/parameters', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ planet_names: planetNames })
+        });
+
+        if (!response.ok) {
+            let errorMsg = `HTTP error! status: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorMsg += `, message: ${errorData.error || JSON.stringify(errorData)}`;
+            } catch (e) {
+                errorMsg += `, response body: ${await response.text()}`;
             }
-    
-            // Preencher os cards de planetas
-            renderPlanetCards(data.planets);
-    
-            // Esconder loading e mostrar área de parâmetros
+            throw new Error(errorMsg);
+        }
+
+        const data = await response.json();
+
+        if (!data || !data.planets || !Array.isArray(data.planets)) {
+            throw new Error('Invalid response format: missing or malformed planets data');
+        }
+
+        // Preencher os cards de planetas
+        renderPlanetCards(data.planets);
+
+        // Preencher campo oculto com nomes dos planetas
+        document.getElementById('planet-names-hidden').value = planetNames.join(',');
+
+        // Esconder loading e mostrar área de parâmetros com um pequeno atraso para estabilizar o DOM
+        setTimeout(() => {
             document.getElementById('loading-indicator').style.display = 'none';
             document.getElementById('planets-parameters-container').style.display = 'block';
-    
-
-            // Preencher campo oculto com nomes dos planetas
-            document.getElementById('planet-names-hidden').value = planetNames.join(',');
-
-            // Salvar os planetas na sessão para que /configure funcione
-            await fetch('/api/save-planets-to-session', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken
-                },
-                body: JSON.stringify({ planet_names: planetNames })
-            });
-
-    
-        } catch (error) {
-            console.error('Error fetching planet data:', error);
-            alert('Failed to fetch planet data. Please try again.');
-            document.getElementById('loading-indicator').style.display = 'none';
-        }
-    });
+        }, 100);
+    } catch (error) {
+        console.error('Error during search:', error);
+        alert('Failed to process search: ' + error.message);
+        document.getElementById('loading-indicator').style.display = 'none';
+    }
+});
     
     // Função para renderizar os cards de planetas
     function renderPlanetCards(planets) {
@@ -410,44 +426,50 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
     // Recarregar planetas da sessão, se existirem
-    (async function autoReloadPlanetsFromSession() {
-        try {
-            const planetTags = document.getElementById('planet-names-input').value;
-            if (!planetTags) return;
+// Recarregar planetas da sessão, se existirem, apenas se não for uma restauração
+(async function autoReloadPlanetsFromSession() {
+    if (window.location.search.includes('restore=1')) {
+        console.log('Skipping auto-reload due to restore=1');
+        return; // Evitar auto-reload em restauração
+    }
 
-            const planetNames = planetTags.split(',').map(p => p.trim()).filter(Boolean);
-            if (planetNames.length === 0) return;
+    try {
+        const planetTags = document.getElementById('planet-names-input').value;
+        if (!planetTags) return;
 
-            // Mostrar loading
-            document.getElementById('loading-indicator').style.display = 'block';
-            document.getElementById('planets-parameters-container').style.display = 'none';
+        const planetNames = planetTags.split(',').map(p => p.trim()).filter(Boolean);
+        if (planetNames.length === 0) return;
 
-            const csrfToken = document.querySelector('#planet-search-form input[name="csrf_token"]').value;
+        // Mostrar loading
+        document.getElementById('loading-indicator').style.display = 'block';
+        document.getElementById('planets-parameters-container').style.display = 'none';
 
-            const response = await fetch('/api/planets/parameters', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken
-                },
-                body: JSON.stringify({ planet_names: planetNames })
-            });
+        const csrfToken = document.querySelector('#planet-search-form input[name="csrf_token"]').value;
 
-            if (!response.ok) throw new Error(await response.text());
+        const response = await fetch('/api/planets/parameters', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ planet_names: planetNames })
+        });
 
-            const data = await response.json();
+        if (!response.ok) throw new Error(await response.text());
 
-            renderPlanetCards(data.planets);
+        const data = await response.json();
 
-            document.getElementById('loading-indicator').style.display = 'none';
-            document.getElementById('planets-parameters-container').style.display = 'block';
+        renderPlanetCards(data.planets);
 
-            document.getElementById('planet-names-hidden').value = planetNames.join(',');
-        } catch (error) {
-            console.error('Erro ao recarregar planetas da sessão:', error);
-            document.getElementById('loading-indicator').style.display = 'none';
-        }
-    })();
+        document.getElementById('loading-indicator').style.display = 'none';
+        document.getElementById('planets-parameters-container').style.display = 'block';
+
+        document.getElementById('planet-names-hidden').value = planetNames.join(',');
+    } catch (error) {
+        console.error('Erro ao recarregar planetas da sessão:', error);
+        document.getElementById('loading-indicator').style.display = 'none';
+    }
+})();
 
 </script>
 
