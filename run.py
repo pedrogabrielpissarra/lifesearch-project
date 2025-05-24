@@ -1,3 +1,13 @@
+"""
+Main script to start the LifeSearch Flask application.
+
+This script configures basic logging for the application and then
+creates and runs the Flask application instance. It serves as the
+entry point for running the development server.
+
+To run the application:
+    python run.py
+"""
 from app import create_app
 import logging
 import os

@@ -1,0 +1,37 @@
+site_name: LifeSearch Documentation
+site_description: LifeSearch project Technical Docs
+
+theme:
+  name: readthedocs # Um tema popular e limpo. Outra opção é 'mkdocs'.
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+extra_javascript:
+  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML
+
+nav:
+  - Home: index.md
+  - User Guide: user_guide.md
+  - API reference:
+    - Data Module: api/data.md
+    - Reports Module: api/reports.md
+    - LifeSearch Main Module: api/lifesearch_main.md
+    - Routes Module: api/routes.md
+  - Scientific Formulas: formulas_lifesearch.md
+  - Bibliography and Data Sources: sources.md
+  - About: about.md
+
+plugins:
+  - search        # Adiciona funcionalidade de busca
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_root_heading: true       # Mostra o nome do módulo como título
+            show_source: true             # Link para o código fonte (opcional)
+            members_order: source         # Ordem dos membros como no código fonte
+            docstring_style: google       # Assume que suas docstrings seguem o estilo Google (como fizemos)
+            merge_init_into_class: true   # Documentação do __init__ junto com a classe
+            show_bases: true              # Mostra classes base
+            show_signature_annotations: true # Mostra anotações de tipo na assinatura
