@@ -20,6 +20,15 @@ import json
 logger = logging.getLogger(__name__)
 
 def replace_nan_with_none(obj):
+    """Recursively replaces float NaN values with None in a nested data structure.
+    
+    Args:
+        obj (dict, list, float, or other): The object to process. Can be a dictionary,
+                                            list, or a single value.
+    
+    Returns:
+        The processed object with NaN values replaced by None.
+    """
     if isinstance(obj, dict):
         return {k: replace_nan_with_none(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -32,6 +41,15 @@ import math # Garanta que math seja importado no topo de routes.py
 
 
 def get_template_env():
+    """Initializes and returns a Jinja2 template environment.
+    
+    Configures the template loader to look for templates in the 'templates'
+    directory relative to the application's root path. Enables autoescaping
+    for security.
+    
+    Returns:
+        jinja2.Environment: The configured Jinja2 environment.
+    """
     template_loader = FileSystemLoader(searchpath=os.path.join(current_app.root_path, "templates"))
     return Environment(loader=template_loader, autoescape=True) # Added autoescape for security
 
@@ -47,7 +65,14 @@ DEFAULT_PHI_WEIGHTS = {
 from flask import current_app as app
 
 @app.context_processor
-def inject_global_vars(): # Renamed for clarity
+def inject_global_vars():
+    """Injects global variables into the template context.
+    
+    Makes the current year and the datetime object available in all templates.
+    
+    Returns:
+        dict: A dictionary of variables to inject into the template context.
+    """
     return {
         "current_year": datetime.now().year,
         "datetime": datetime # Make datetime object available for templates if needed
@@ -56,35 +81,34 @@ def inject_global_vars(): # Renamed for clarity
 @app.route("/", methods=["GET", "POST"])
 @app.route("/index", methods=["GET", "POST"])
 def index():
+    """Handles the main page for planet search.
+    
+    Displays the planet search form. On GET request with 'restore=1' parameter,
+    it restores planet names and parameter overrides from the session.
+    On POST request (form submission), it validates the input, stores
+    planet names and overrides in the session, and redirects to the results page.
+    
+    Returns:
+        werkzeug.wrappers.response.Response: Renders the index.html template or
+                                             redirects to the results page.
+    """
+    logger.info(f"Index: Initial session content: {dict(session)}")
     form = PlanetSearchForm()
 
-    # ✅ Restaura dados da sessão se acesso via ?restore=1
+    # Recovery session data via ?restore=1
     if request.method == "GET" and request.args.get("restore") == "1":
         planet_names_list = session.get("planet_names_list", [])
         parameter_overrides_input = session.get("parameter_overrides_input", "")
+        
+        logger.info(f"Index: Restoring session - planet_names_list={planet_names_list}, parameter_overrides_input={parameter_overrides_input}")
         
         if planet_names_list:
             form.planet_names.data = ", ".join(planet_names_list)
         if parameter_overrides_input:
             form.parameter_overrides.data = parameter_overrides_input
 
-    # 🔁 Se for uma submissão do formulário (POST)
-    if request.form.get('parameter_overrides') is not None:
-        planet_names_input = request.form.get('planet_names', '')
-        parameter_overrides_input = request.form.get('parameter_overrides', '')
-        
-        planet_names_list = [name.strip() for name in planet_names_input.replace(",", "\n").split("\n") if name.strip()]
-
-        if not planet_names_list:
-            flash("Please enter valid planet names.", "danger")
-            return render_template("index.html", form=form, title="LifeSearch Web")
-
-        session["planet_names_list"] = planet_names_list
-        session["parameter_overrides_input"] = parameter_overrides_input
-        
-        return redirect(url_for("results"))
-    
-    elif form.validate_on_submit():
+    # If is a form post submission (POST)
+    if form.validate_on_submit():
         planet_names_input = form.planet_names.data
         parameter_overrides_input = form.parameter_overrides.data
         
@@ -92,50 +116,49 @@ def index():
 
         if not planet_names_list:
             flash("Please enter valid planet names.", "danger")
+            logger.info("Index: No valid planet names provided")
             return render_template("index.html", form=form, title="LifeSearch Web")
 
-        session.pop("planet_names_list", None)
-        session.pop("parameter_overrides_input", None)
-        
         session["planet_names_list"] = planet_names_list
         session["parameter_overrides_input"] = parameter_overrides_input
+        session.modified = True
+        logger.info(f"Index: Updated session with planet_names_list={planet_names_list}, parameter_overrides_input={parameter_overrides_input}")
+        logger.info(f"Index: Session after update: {dict(session)}")
         
         return redirect(url_for("results"))
 
+    logger.info(f"Index: Rendering index.html with session: {dict(session)}")
     return render_template("index.html", form=form, title="LifeSearch Web")
 
 @app.route("/configure", methods=["GET", "POST"])
 def configure():
+    """Handles the configuration page for habitability and PHI weights.
+    
+    Displays forms for setting global and potentially planet-specific weights.
+    Retrieves planet names from the session and fetches their reference ESI/PHI
+    values based on current global weights for display.
+    
+    Returns:
+        werkzeug.wrappers.response.Response: Renders the configure.html template.
+    """
     planet_names_list = session.get("planet_names_list", [])
+    logger.info(f"Configure: Full session content: {dict(session)}")
     logger.info(f"Configure: planet_names_list na sessão = {planet_names_list}")
     
-    # These forms might still be needed if you use their definitions for factor names/labels,
-    # but they won't be submitted directly from global forms anymore.
     hab_form = HabitabilityWeightsForm(prefix="hab")
     phi_form = PHIWeightsForm(prefix="phi")
 
-    # POST logic for hab_form and phi_form will be removed as global forms are gone.
-    # if request.method == "POST":
-    # ... (remove the old POST handling for hab_form.submit_weights and phi_form.submit_phi_weights) ...
-
-    # GET logic remains similar, but primarily to set up data for JS
-    # Default weights (application's base defaults)
     default_hab_weights = DEFAULT_HABITABILITY_WEIGHTS 
     default_phi_weights = DEFAULT_PHI_WEIGHTS
-
-    # Current global weights (what's currently saved globally, falls back to defaults)
     current_global_hab_weights = session.get("habitability_weights", default_hab_weights)
     current_global_phi_weights = session.get("phi_weights", default_phi_weights)
-    
-    # Current individual planet-specific weights
     current_planet_specific_weights = session.get("planet_weights", {})
-    
-    use_individual = session.get("use_individual_weights", False) # State of the checkbox
+    use_individual = session.get("use_individual_weights", False)
 
-    reference_values = [] # Your existing logic to populate reference_values ...
+    reference_values = []
+    initial_hab_weights = {}
+    initial_phi_weights = {}
     if planet_names_list:
-        # ... (your existing logic to calculate reference_values based on current_global_weights) ...
-        # This part remains the same as it's for the top "Reference Values" table.
         default_habitability_weights_ref = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
         default_phi_weights_ref = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
         global_habitability_weights_ref = session.get("habitability_weights", default_habitability_weights_ref)
@@ -158,79 +181,187 @@ def configure():
             normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
             combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
             
+            logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
+            
+            # Calcular ESI e PHI com pesos padrão (0.0 para habitability, 0.0 para PHI)
             processed_result = process_planet_data(
                 normalized_planet_name,
                 combined_data,
-                {"habitability": global_habitability_weights_ref, "phi": global_phi_weights_ref}
+                {"habitability": {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}, 
+                 "phi": {"Solid Surface": 0.0, "Stable Energy": 0.0, "Life Compounds": 0.0, "Stable Orbit": 0.0}}
             )
             
             if processed_result:
                 planet_data = processed_result.get("planet_data_dict", {})
-                scores = processed_result.get("scores_for_report", {}) # scores_for_report contém ESI, PHI
+                scores = processed_result.get("scores_for_report", {})
                 
-                # Log para depuração
                 logger.info(f"Configure: scores para {normalized_planet_name}: {scores}")
                 
-                # CORREÇÃO: Extração robusta de ESI - Usando a chave 'ESI' em maiúsculo
                 esi_data = scores.get("ESI")
                 if isinstance(esi_data, tuple):
                     esi_val = esi_data[0]
                 elif isinstance(esi_data, (float, int)):
                     esi_val = esi_data
                 else:
-                    esi_val = 0.0 # Default para 0.0 se não encontrado ou formato inválido
+                    esi_val = 0.0
 
-                # CORREÇÃO: Extração robusta de PHI - Usando a chave 'PHI' em maiúsculo
                 phi_data = scores.get("PHI")
                 if isinstance(phi_data, tuple):
                     phi_val = phi_data[0]
                 elif isinstance(phi_data, (float, int)):
                     phi_val = phi_data
                 else:
-                    phi_val = 0.0 # Default para 0.0
+                    phi_val = 0.0
 
                 reference_planet = {
                     "name": planet_data.get("pl_name", normalized_planet_name),
-                    "esi": esi_val, # Usar o valor extraído
-                    "phi": phi_val, # Usar o valor extraído
+                    "esi": esi_val,
+                    "phi": phi_val,
                     "classification": planet_data.get("classification", "Unknown")
                 }
                 reference_values.append(reference_planet)
 
+                # Calcular similaridades reais para pesos iniciais do ESI
+                earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
+                esi_factors_map = {"pl_rade": "Size", "pl_dens": "Density", "pl_eqt": "Habitable Zone"}
+                similarities = {}
+                total_similarity = 0.0
+                num_esi_params = 0
+
+                for param_key, weight_key in esi_factors_map.items():
+                    planet_val = planet_data.get(param_key)
+                    earth_val = earth_params.get(param_key)
+                    if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
+                        try:
+                            planet_val_fl = float(planet_val)
+                            earth_val_fl = float(earth_val)
+                            similarity = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
+                            if similarity < 0:
+                                similarity = 0.0
+                            similarities[weight_key] = similarity
+                            total_similarity += similarity
+                            num_esi_params += 1
+                            logger.debug(f"Similarity for {param_key} ({weight_key}): {similarity}")
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Could not compute similarity for {param_key}: {e}")
+                            similarities[weight_key] = 0.0
+                    else:
+                        logger.warning(f"Missing or invalid data for {param_key}: planet_val={planet_val}, earth_val={earth_val}")
+                        similarities[weight_key] = 0.0
+
+                # Calcular pesos iniciais para ESI
+                esi_target = esi_val / 100.0 if esi_val > 0 else 0.0
+                initial_hab_weights[normalized_planet_name] = {
+                    "Size": 0.0,
+                    "Density": 0.0,
+                    "Habitable Zone": 0.0
+                }
+                if num_esi_params > 0 and total_similarity > 0:
+                    for weight_key in esi_factors_map.values():
+                        initial_hab_weights[normalized_planet_name][weight_key] = similarities[weight_key]
+                        logger.debug(f"Initial ESI weight for {weight_key}: {initial_hab_weights[normalized_planet_name][weight_key]}")
+                else:
+                    logger.warning(f"No valid ESI similarities calculated for {normalized_planet_name}. Using ESI target as fallback.")
+                    for weight_key in esi_factors_map.values():
+                        initial_hab_weights[normalized_planet_name][weight_key] = esi_target / num_esi_params if num_esi_params > 0 else 0.0
+
+                # Calcular fatores reais para pesos iniciais do PHI
+                phi_factors = {
+                    "Solid Surface": 0.0,
+                    "Stable Energy": 0.0,
+                    "Life Compounds": 0.0,
+                    "Stable Orbit": 0.0
+                }
+                if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
+                    phi_factors["Solid Surface"] = 0.8
+                if isinstance(planet_data.get("st_spectype", ""), str) and (
+                    planet_data.get("st_spectype", "").startswith("G") or 
+                    planet_data.get("st_spectype", "").startswith("K")
+                ) and pd.notna(planet_data.get("st_age")):
+                    try:
+                        st_age_float = float(planet_data.get("st_age"))
+                        if 1.0 < st_age_float < 8.0:
+                            phi_factors["Stable Energy"] = 0.7
+                    except (ValueError, TypeError):
+                        pass
+                if pd.notna(planet_data.get("pl_orbeccen")):
+                    try:
+                        pl_orbeccen_float = float(planet_data.get("pl_orbeccen"))
+                        if pl_orbeccen_float < 0.2:
+                            phi_factors["Stable Orbit"] = 0.9
+                    except (ValueError, TypeError):
+                        pass
+
+                total_factor_score = sum(phi_factors.values())
+                num_phi_params = len([score for score in phi_factors.values() if score > 0])
+                phi_target = phi_val / 100.0 if phi_val > 0 else 0.0
+                initial_phi_weights[normalized_planet_name] = {
+                    "Solid Surface": 0.0,
+                    "Stable Energy": 0.0,
+                    "Life Compounds": 0.0,
+                    "Stable Orbit": 0.0
+                }
+                if num_phi_params > 0 and total_factor_score > 0:
+                    for factor_name in phi_factors:
+                        # Escalar o factor_score para a faixa 0.0 a 0.25
+                        initial_phi_weights[normalized_planet_name][factor_name] = (
+                            phi_factors[factor_name] / 4.0 * phi_target
+                        ) if phi_val > 0 else 0.0
+                        logger.debug(f"Initial PHI weight for {factor_name}: {initial_phi_weights[normalized_planet_name][factor_name]}")
+                else:
+                    logger.warning(f"No valid PHI factors calculated for {normalized_planet_name}. Using PHI target as fallback.")
+                    for factor_name in phi_factors:
+                        initial_phi_weights[normalized_planet_name][factor_name] = phi_target / len(phi_factors) if phi_val > 0 else 0.0
+
     logger.info(f"Configure: reference_values = {reference_values}")
-    # Pass hab_form and phi_form if their definitions are used by the template for something else,
-    # otherwise they can be removed from here too.
+    logger.info(f"Configure: initial_hab_weights = {initial_hab_weights}")
+    logger.info(f"Configure: initial_phi_weights = {initial_phi_weights}")
+    logger.info(f"Configure: initial_hab_weights_json = {json.dumps(initial_hab_weights)}")
+    logger.info(f"Configure: initial_phi_weights_json = {json.dumps(initial_phi_weights)}")
     return render_template("configure.html", 
                            hab_form=hab_form, 
                            phi_form=phi_form, 
                            title="Configure Weights", 
                            reference_values=reference_values,
-                           # Data for JavaScript:
                            default_hab_weights_json=json.dumps(default_hab_weights),
                            default_phi_weights_json=json.dumps(default_phi_weights),
                            current_global_hab_weights_json=json.dumps(current_global_hab_weights),
                            current_global_phi_weights_json=json.dumps(current_global_phi_weights),
                            current_planet_specific_weights_json=json.dumps(current_planet_specific_weights),
-                           use_individual_weights_val=use_individual
-                           )
+                           use_individual_weights_val=use_individual,
+                           initial_hab_weights_json=json.dumps(initial_hab_weights),
+                           initial_phi_weights_json=json.dumps(initial_phi_weights))
 
-# Novo endpoint para fornecer valores de referência dos planetas via AJAX
-# CORREÇÃO: Adicionado endpoint com hífen para compatibilidade com o frontend
 @app.route("/api/planets/reference-values", methods=["GET"])
 def get_planet_reference_values_hyphen():
     """
-    Endpoint API para fornecer valores de referência dos planetas para a página Configure Weights.
-    Retorna os planetas da sessão com seus valores de ESI, PHI e classificação.
-    Versão com hífen para compatibilidade com o frontend.
+    API endpoint (hyphenated path) to provide reference ESI, PHI, and classification
+    for planets currently in the session.
+    
+    This endpoint calls `get_planet_reference_values` and is provided for frontend
+    compatibility that might prefer hyphenated URLs.
+    
+    Returns:
+        flask.Response: JSON response containing a list of planets with their
+                        reference values.
     """
     return get_planet_reference_values()
 
-# Mantido o endpoint original com underscore para compatibilidade
-@app.route("/api/planets/reference_values", methods=["GET"])
+
+@app.route("/api/planets/reference_values", methods=["GET", "POST"])
 def get_planet_reference_values():
     """
-    Endpoint API para fornecer valores de referência dos planetas para a página Configure Weights.
-    Retorna os planetas da sessão com seus valores de ESI, PHI e classificação.
+    API endpoint to calculate and return reference ESI, PHI, and classification
+    for planets in the session.
+    
+    On GET, uses global weights from the session or defaults.
+    On POST, can accept `use_individual_weights` and `planet_weights` to calculate
+    reference values with potentially different weights for each planet, without
+    permanently saving these weights to the session from this endpoint.
+    
+    Returns:
+        flask.Response: JSON response containing a list of planets, each with
+                        'name', 'esi', 'phi', and 'classification'.
     """
     logger = current_app.logger
     planet_names_list = session.get("planet_names_list", [])
@@ -239,16 +370,21 @@ def get_planet_reference_values():
     if not planet_names_list:
         return jsonify({"planets": []})
     
-    # Obter pesos globais/padrão da sessão ou usar defaults
+    use_individual_weights = False
+    planet_weights = {}
+    if request.method == "POST":
+        data = request.json or {}
+        use_individual_weights = data.get("use_individual_weights", False)
+        planet_weights = data.get("planet_weights", {})
+        logger.info(f"API reference_values - POST data: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
+    
     default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
     default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
     global_habitability_weights = session.get("habitability_weights", default_habitability_weights)
     global_phi_weights = session.get("phi_weights", default_phi_weights)
     
-    # Logar os pesos globais usados
     logger.info(f"API reference_values - Global weights: hab={global_habitability_weights}, phi={global_phi_weights}")
     
-    # Carregar catálogos de dados
     hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
     hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
     
@@ -268,22 +404,29 @@ def get_planet_reference_values():
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
         
-        # Processar dados do planeta com os pesos atuais
+        weights = {
+            "habitability": global_habitability_weights,
+            "phi": global_phi_weights
+        }
+        if use_individual_weights and normalized_planet_name in planet_weights:
+            planet_specific_weights = planet_weights.get(normalized_planet_name, {})
+            weights["habitability"] = planet_specific_weights.get("habitability", global_habitability_weights)
+            weights["phi"] = planet_specific_weights.get("phi", global_phi_weights)
+            logger.info(f"Using individual weights for {normalized_planet_name}: {planet_specific_weights}")
+        
         processed_result = process_planet_data(
             normalized_planet_name,
             combined_data,
-            {"habitability": global_habitability_weights, "phi": global_phi_weights}
+            weights
         )
         
         if processed_result:
             planet_data = processed_result.get("planet_data_dict", {})
             scores = processed_result.get("scores_for_report", {})
             
-            # Logar os scores retornados
             logger.info(f"API reference_values - Scores for {normalized_planet_name}: {scores}")
             
-            # Extração robusta de ESI
-            esi_data_api = scores.get("esi")
+            esi_data_api = scores.get("ESI")
             if isinstance(esi_data_api, tuple):
                 esi_val_api = esi_data_api[0]
             elif isinstance(esi_data_api, (float, int)):
@@ -291,8 +434,7 @@ def get_planet_reference_values():
             else:
                 esi_val_api = 0.0
             
-            # Extração robusta de PHI
-            phi_data_api = scores.get("phi")
+            phi_data_api = scores.get("PHI")
             if isinstance(phi_data_api, tuple):
                 phi_val_api = phi_data_api[0]
             elif isinstance(phi_data_api, (float, int)):
@@ -313,9 +455,25 @@ def get_planet_reference_values():
 
 @app.route("/results")
 def results():
+    """Generates and displays the analysis results for selected planets.
+    
+    Retrieves planet names, parameter overrides, and weight configurations
+    from the session. For each planet, it fetches data, applies overrides,
+    processes it (calculating scores, generating plots), and creates an
+    individual HTML report.
+    It also generates a summary report and a combined report for all processed planets.
+    Reports and charts are saved to a timestamped session directory.
+    
+    Returns:
+        werkzeug.wrappers.response.Response: Renders the results.html template
+                                             with links to the generated reports.
+                                             Redirects to index if no planets are in session.
+    """
     logger = current_app.logger 
     planet_names_list = session.get("planet_names_list", [])
     parameter_overrides_input = session.get("parameter_overrides_input", "")
+    
+    logger.info(f"Results: Full session content: {dict(session)}")
     
     default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
     default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
@@ -325,6 +483,7 @@ def results():
     use_individual_weights = session.get('use_individual_weights', False)
     individual_planet_weights_map = session.get('planet_weights', {}) 
     logger.info(f"Results: use_individual_weights={use_individual_weights}, individual_planet_weights_map={individual_planet_weights_map}")
+    logger.info(f"Results: individual_planet_weights_map keys={list(individual_planet_weights_map.keys())}")
 
     if not planet_names_list:
         flash("No planets to process. Please perform a new search.", "warning")
@@ -393,38 +552,27 @@ def results():
             api_data["pl_name"] = planet_name 
 
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
+        logger.info(f"Normalized planet name: '{planet_name}' -> '{normalized_planet_name}'")
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
-
-        current_hab_weights = global_habitability_weights
-        current_phi_weights = global_phi_weights
 
         if use_individual_weights and normalized_planet_name in individual_planet_weights_map:
             planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
-            if isinstance(planet_specific_weights_entry, dict):
-                logger.info(f"Found individual weights entry for {normalized_planet_name}: {planet_specific_weights_entry}")
-                if 'habitability' in planet_specific_weights_entry and planet_specific_weights_entry['habitability'] is not None:
-                    current_hab_weights = planet_specific_weights_entry['habitability']
-                    logger.info(f"Using individual habitability weights for {normalized_planet_name}")
-                else:
-                    logger.info(f"Individual habitability weights not found or None for {normalized_planet_name}, using global.")
-                
-                if 'phi' in planet_specific_weights_entry and planet_specific_weights_entry['phi'] is not None:
-                    current_phi_weights = planet_specific_weights_entry['phi']
-                    logger.info(f"Using individual PHI weights for {normalized_planet_name}")
-                else:
-                    logger.info(f"Individual PHI weights not found or None for {normalized_planet_name}, using global.")
-            else:
-                logger.warning(f"Individual weights entry for {normalized_planet_name} is not a dict: {planet_specific_weights_entry}. Using global weights.")
-        elif use_individual_weights:
-            logger.info(f"Individual weights enabled, but no entry found for {normalized_planet_name}. Using global weights.")
+            logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
+            current_hab_weights = planet_specific_weights_entry.get('habitability', global_habitability_weights)
+            current_phi_weights = planet_specific_weights_entry.get('phi', global_phi_weights)
         else:
-            logger.info(f"Using global weights for {normalized_planet_name} (individual weights disabled).")
-        
+            logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
+            current_hab_weights = global_habitability_weights
+            current_phi_weights = global_phi_weights
+
+        logger.info(f"Final habitability weights for '{normalized_planet_name}': {current_hab_weights}")
+        logger.info(f"Final PHI weights for '{normalized_planet_name}': {current_phi_weights}")
+
         processed_result = process_planet_data(
-            normalized_planet_name, 
-            combined_data, 
+            normalized_planet_name,
+            combined_data,
             {"habitability": current_hab_weights, "phi": current_phi_weights}
-        )
+        )                   
         
         if not processed_result:
             logger.warning(f"Processing failed or returned no data for {planet_name}. Creating placeholder.")
@@ -436,7 +584,6 @@ def results():
             flash(f"Error processing data for {planet_name}. Check logs for details.", "warning")
             continue
 
-        # Gerar gráficos para o relatório
         planet_data_dict = processed_result.get("planet_data_dict", {})
         scores_for_report = processed_result.get("scores_for_report", {})
         sephi_scores_for_report = processed_result.get("sephi_scores_for_report", {})
@@ -457,7 +604,6 @@ def results():
         if scores_plot_filename:
             plots["scores_plot"] = f"charts/{scores_plot_filename}"
         
-        # Gerar relatório individual
         try:
             report_path = generate_planet_report_html(
                 planet_data_dict,
@@ -484,7 +630,6 @@ def results():
         
         all_planets_processed_data_for_summary.append(processed_result)
 
-    # Gerar relatórios de resumo e combinado
     if all_planets_processed_data_for_summary:
         logger.info(f"Attempting to generate summary and combined reports for {len(all_planets_processed_data_for_summary)} processed planet entries.")
         
@@ -543,6 +688,19 @@ def results():
 
 @app.route("/results_archive/<path:results_dir>/<path:filename>")
 def serve_generated_file(results_dir, filename):
+    """Serves generated report files and charts from the results archive.
+    
+    Ensures that files are served only from within the application's
+    configured RESULTS_DIR to prevent directory traversal attacks.
+    
+    Args:
+        results_dir (str): The specific timestamped subdirectory within RESULTS_DIR.
+        filename (str): The name of the file to serve.
+    
+    Returns:
+        werkzeug.wrappers.response.Response: The requested file or a 403 error
+                                             if access is denied.
+    """
     # Ensure the directory is always relative to RESULTS_DIR and secure
     directory = os.path.normpath(os.path.join(current_app.config["RESULTS_DIR"], results_dir))
     logger.info(f"Attempting to serve file: {filename} from directory: {directory}")
@@ -556,6 +714,20 @@ def serve_generated_file(results_dir, filename):
 
 @app.route('/api/planets/autocomplete')
 def planets_autocomplete():
+    """API endpoint for planet name autocompletion.
+    
+    Searches the local HWC (Habitable Worlds Catalog) CSV file for planet names
+    matching the provided 'term' query parameter.
+    
+    Query Args:
+        term (str): The search term for planet names (minimum 2 characters).
+    
+    Returns:
+        flask.Response: JSON list of suggestions (up to 20) in the format
+                        `[{'value': 'PlanetName'}]`. Returns an empty list
+                        if the term is too short or no matches are found.
+                        Returns an error JSON on file issues.
+    """
     term = request.args.get('term', '').strip().lower()
     
     if not term or len(term) < 2:
@@ -566,15 +738,15 @@ def planets_autocomplete():
         hwc_df = load_hwc_catalog(hwc_file_path) 
 
         suggestions = []
-        # MODIFICAÇÃO AQUI: Usar 'P_NAME' em vez de 'pl_name'
+        #  Usar 'P_NAME' em vez de 'pl_name'
         if 'P_NAME' in hwc_df.columns:
-            # MODIFICAÇÃO AQUI: Filtrar e selecionar da coluna 'P_NAME'
+            #  Filtrar e selecionar da coluna 'P_NAME'
             mask = hwc_df['P_NAME'].astype(str).str.lower().str.contains(term, na=False)
             matched_names = hwc_df.loc[mask, 'P_NAME'].unique() 
             
             suggestions = [{'value': name} for name in matched_names]
         else:
-            # MODIFICAÇÃO AQUI: Mensagem de log atualizada
+            #  Mensagem de log atualizada
             current_app.logger.warning("Column 'P_NAME' not found in HWC DataFrame for autocomplete.")
         
         return jsonify(suggestions[:20])
@@ -586,9 +758,22 @@ def planets_autocomplete():
         current_app.logger.error(f"Error processing HWC for autocomplete: {e}", exc_info=True)
         return jsonify({"error": "Could not fetch suggestions from local HWC catalog"}), 500
     
-# Novo endpoint para buscar parâmetros dos planetas
 @app.route('/api/planets/parameters', methods=['POST'])
 def get_planet_parameters():
+    """API endpoint to fetch raw parameters for a list of planet names.
+    
+    Accepts a JSON POST request with a list of 'planet_names'. For each name,
+    it fetches data from an external API (e.g., NASA Exoplanet Archive).
+    NaN values in the fetched data are replaced with None.
+    
+    JSON Request Body:
+        {"planet_names": ["Planet1", "Planet2"]}
+    
+    Returns:
+        flask.Response: JSON response containing a list of 'planets', where each
+                        item is a dictionary of parameters for that planet,
+                        or an error status if data couldn't be fetched.
+    """
     data = request.json
     planet_names = data.get('planet_names', [])
     
@@ -622,35 +807,92 @@ def get_planet_parameters():
                 'message': str(e)
             })
     
-    # >>> ADICIONE A CHAMADA PARA A FUNÇÃO DE LIMPEZA AQUI <<<
+    # >>> CHAMADA PARA A FUNÇÃO DE LIMPEZA <<<
     planets_data_cleaned = replace_nan_with_none(planets_data_raw)
     
     return jsonify({'planets': planets_data_cleaned}) # Use a lista limpa
 
 @app.route('/api/clear-session', methods=['POST'])
 def clear_session():
+    """API endpoint to clear specific items from the user's session.
+    
+    Specifically removes 'parameter_overrides_input', 'planet_weights',
+    and 'use_individual_weights' from the session.
+    
+    Returns:
+        flask.Response: JSON response indicating the status of the operation.
+    """
+    logger.info(f"Clear-session called: Before clear, session content: {dict(session)}")
     session.pop("parameter_overrides_input", None)
     session.pop("planet_weights", None)
     session.pop("use_individual_weights", None)
-    # NÃO remove planet_names_list aqui
+    logger.info(f"Clear-session: After clear, session content: {dict(session)}")
     return jsonify({"status": "partial session cleared"})
 
 @app.route('/api/save-planet-weights', methods=['POST'])
 def save_planet_weights():
+    """API endpoint to save planet-specific or global weight configurations to the session.
+    
+    Accepts a JSON POST request with `use_individual_weights` (bool) and
+    `planet_weights` (dict). Planet names in `planet_weights` are normalized.
+    Updates the session with these settings.
+    
+    JSON Request Body:
+        {
+            "use_individual_weights": true,
+            "planet_weights": {
+                "Planet1": {"habitability": {...}, "phi": {...}},
+                ...
+            }
+        }
+    
+    Returns:
+        flask.Response: JSON response indicating the status of the operation.
+    """
     data = request.json
     use_individual_weights = data.get('use_individual_weights', False)
     planet_weights = data.get('planet_weights', {})
     
-    # Logar os pesos recebidos
-    logger.info(f"API save-planet-weights - Received: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
+    logger.info(f"API save-planet-weights - Raw input: {data}")
+    
+    normalized_planet_weights = {}
+    for planet_name, weights in planet_weights.items():
+        normalized_name = normalize_name(planet_name)
+        normalized_planet_weights[normalized_name] = weights
+        logger.info(f"API save-planet-weights - Normalized '{planet_name}' to '{normalized_name}'")
+    
+    logger.info(f"API save-planet-weights - Normalized planet_weights: {normalized_planet_weights}")
     
     session['use_individual_weights'] = use_individual_weights
     
-    if use_individual_weights and planet_weights:
-        session['planet_weights'] = planet_weights
+    if use_individual_weights and normalized_planet_weights:
+        # Mesclar com pesos existentes na sessão
+        existing_weights = session.get('planet_weights', {})
+        existing_weights.update(normalized_planet_weights)
+        session['planet_weights'] = existing_weights
+        session.modified = True
+        logger.info(f"API save-planet-weights - Saved to session: planet_weights={session['planet_weights']}")
+        logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
     
     return jsonify({'status': 'success'})
 
+@app.route('/api/debug-session', methods=['GET'])
+def debug_session():
+    """API endpoint for debugging session content.
+    
+    Returns a JSON representation of selected session variables, useful for
+    development and troubleshooting.
+    
+    Returns:
+        flask.Response: JSON object with 'planet_names_list', 'use_individual_weights',
+                        and 'planet_weights' from the session.
+    """
+    logger.info(f"Debugging session: planet_names_list={session.get('planet_names_list')}, use_individual_weights={session.get('use_individual_weights')}, planet_weights={session.get('planet_weights')}")
+    return jsonify({
+        'planet_names_list': session.get('planet_names_list'),
+        'use_individual_weights': session.get('use_individual_weights'),
+        'planet_weights': session.get('planet_weights')
+    })
 
 @app.errorhandler(404)
 def page_not_found(e):
@@ -663,6 +905,19 @@ def internal_server_error(e):
 
 @app.route('/api/save-planets-to-session', methods=['POST'])
 def save_planets_to_session():
+    """API endpoint to save a list of planet names to the session.
+    
+    Accepts a JSON POST request containing a list of 'planet_names'.
+    This is typically used by the frontend to update the session when
+    planets are added or removed in the UI, for example, on the 'configure' page.
+    
+    JSON Request Body:
+        {"planet_names": ["Planet1", "Planet2", ...]}
+    
+    Returns:
+        flask.Response: JSON response indicating 'saved' status or 'no_planets'
+                        with a 400 error if the list is empty.
+    """
     data = request.get_json()
     planet_names = data.get("planet_names", [])
     if planet_names:
