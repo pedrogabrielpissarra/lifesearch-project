@@ -23,7 +23,7 @@ jobs:
       # 3. Constrói a imagem Docker
       - name: Build Docker image
         run: |
-          docker build -t lifesearch:latest -f lifesearch-docker.dockerfile .
+          docker build -t lifesearch-app:latest -f lifesearch-docker.dockerfile .
 
         # Se seu Dockerfile tem um nome diferente de "Dockerfile", 
         # ajuste o comando, por exemplo:
