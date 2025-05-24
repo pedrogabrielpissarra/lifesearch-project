@@ -16,12 +16,30 @@ logger = logging.getLogger(__name__)
 
 # Helper function to create output directories if they don"t exist
 def ensure_dir(directory):
+    """Ensures that a directory exists, creating it if necessary.
+    
+    Logs the creation of the directory if it did not already exist.
+    
+    Args:
+        directory (str): The path to the directory to check/create.
+    """
     if not os.path.exists(directory):
         os.makedirs(directory)
         logger.info(f"Created directory: {directory}")
 
 def get_color_for_percentage(percentage):
-    """Helper function to determine color based on percentage for reports."""
+    """Determines a hex color code based on a percentage value for reports.
+    
+    Colors are based on Bootstrap-like alert levels (success, warning, danger)
+    and shades in between.
+    
+    Args:
+        percentage (float or None): The percentage value. Handles None, NaN,
+                                    and unconvertible values by returning grey.
+    
+    Returns:
+        str: Hex color code string (e.g., "#28a745" for green, "#808080" for grey/N/A).
+    """
     if percentage is None or pd.isna(percentage):
         return "#808080"  # Grey for N/A
     try:
@@ -42,6 +60,20 @@ def get_color_for_percentage(percentage):
 
 # Corrected formatting for potentially string numeric values
 def format_float_field(value, precision=".2f"):
+    """Formats a value as a float string with specified precision, or returns "N/A".
+    
+    Handles pandas NaN, None, "N/A" strings, or empty strings by returning "N/A".
+    Attempts to convert the value to a float before formatting. If conversion fails,
+    the original string representation is returned.
+    
+    Args:
+        value (any): The value to format.
+        precision (str): The precision format string for the float (e.g., ".2f").
+    
+    Returns:
+        str: The formatted float string, "N/A", or the original string value if
+             conversion to float fails.
+    """
     if pd.isna(value) or value == "N/A" or str(value).strip() == "":
         return "N/A"
     try:
@@ -51,6 +83,24 @@ def format_float_field(value, precision=".2f"):
 
 # --- Plotting Functions ---
 def plot_habitable_zone(planet_data, star_data, hz_limits, output_path, planet_name_slug):
+    """Generates and saves a plot of the habitable zone for a given planet.
+    
+    Visualizes the optimistic and conservative habitable zones relative to the
+    planet's orbital semi-major axis. The plot is saved as a PNG file.
+    It can calculate HZ limits based on stellar luminosity if not provided.
+    
+    Args:
+        planet_data (dict): Dictionary containing planet parameters like 'pl_orbsmax', 'pl_name'.
+        star_data (dict): Dictionary containing stellar parameters like 'st_lum'.
+        hz_limits (tuple or None): Tuple of (ohz_in, chz_in, chz_out, ohz_out, teqa_hz_flag)
+                                   or None if limits need to be calculated.
+        output_path (str): The directory where the plot will be saved.
+        planet_name_slug (str): A slugified version of the planet name, used for the filename.
+    
+    Returns:
+        str or None: The filename of the saved plot (e.g., "planet_slug_hz.png") if successful,
+                     None otherwise.
+    """
     ensure_dir(output_path)
     plot_filename = f"{planet_name_slug}_hz.png"
     full_plot_path = os.path.join(output_path, plot_filename)
@@ -95,13 +145,18 @@ def plot_habitable_zone(planet_data, star_data, hz_limits, output_path, planet_n
                 pass
         
         if pl_orbsmax_fl is not None:
-            ax.plot(pl_orbsmax_fl, 0, "o", markersize=10, color="blue", label=f"{planet_data.get("pl_name", planet_name_slug)} ({pl_orbsmax_fl:.2f} AU)")
+            planet_name_value = planet_data.get("pl_name", planet_name_slug)
+            orbit_details = f"({pl_orbsmax_fl:.2f} AU)"
+            label_text = f"{planet_name_value} {orbit_details}"
+            ax.plot(pl_orbsmax_fl, 0, "o", markersize=10, color="blue", label=label_text)
         else:
             logger.warning(f"Orbital semi-major axis (pl_orbsmax) not available or not float for {planet_name_slug}.")
 
         ax.set_yticks([])
         ax.set_xlabel("Distance from Star (AU)")
-        ax.set_title(f"Habitable Zone for {planet_data.get("pl_name", planet_name_slug)}")
+        planet_name_value = planet_data.get("pl_name", planet_name_slug)
+        title_text = f"Habitable Zone for {planet_name_value}"
+        ax.set_title(title_text)
         
         x_values = [val for val in [ohz_in_plot, ohz_out_plot, chz_in_plot, chz_out_plot, pl_orbsmax_fl] if pd.notna(val)]
         if x_values:
@@ -126,6 +181,23 @@ def plot_habitable_zone(planet_data, star_data, hz_limits, output_path, planet_n
         return None
 
 def plot_scores_comparison(scores_data, output_path, planet_name_slug):
+    """Generates and saves a horizontal bar chart comparing various habitability scores.
+    
+    The plot displays scores as percentages with color-coded bars.
+    It filters out non-numeric or invalid score data.
+    
+    Args:
+        scores_data (dict): A dictionary where keys are score names and values are
+                            tuples, typically (score_value, color_code, ...).
+                            Only the score_value (first element) and optionally
+                            color_code (second element) are used.
+        output_path (str): The directory where the plot will be saved.
+        planet_name_slug (str): A slugified version of the planet name, used for the filename.
+    
+    Returns:
+        str or None: The filename of the saved plot (e.g., "planet_slug_scores.png")
+                     if successful, None otherwise.
+    """
     ensure_dir(output_path)
     plot_filename = f"{planet_name_slug}_scores.png"
     full_plot_path = os.path.join(output_path, plot_filename)
@@ -174,6 +246,24 @@ def plot_scores_comparison(scores_data, output_path, planet_name_slug):
 
 # --- HTML Report Generation ---
 def generate_planet_report_html(planet_data_dict, scores, sephi_scores, plots, template_env, output_dir, planet_name_slug):
+    """Generates an individual HTML report for a planet.
+    
+    Uses a Jinja2 template ("report_template.html") to render the planet's data,
+    habitability scores (general and SEPHI), and links to generated plots.
+    
+    Args:
+        planet_data_dict (dict): Dictionary containing detailed data for the planet.
+        scores (dict): Dictionary of general habitability scores and their display colors.
+        sephi_scores (dict): Dictionary of SEPHI scores and their display colors.
+        plots (dict): Dictionary of plot filenames to be included in the report.
+        template_env (jinja2.Environment): The Jinja2 template environment.
+        output_dir (str): The directory where the HTML report will be saved.
+        planet_name_slug (str): A slugified version of the planet name, used for the filename.
+    
+    Returns:
+        str or None: The full path to the generated HTML report file if successful,
+                     None otherwise.
+    """
     ensure_dir(output_dir)
     report_filename = f"{planet_name_slug}_report.html"
     full_report_path = os.path.join(output_dir, report_filename)
@@ -268,6 +358,24 @@ def generate_planet_report_html(planet_data_dict, scores, sephi_scores, plots, t
     
 
 def enrich_atmosphere_water_magnetic_moons(data, classification):
+    """Estimates potential scores and descriptions for atmosphere, water, magnetic activity, and moons.
+    
+    Calculations are based on planet's equilibrium temperature (pl_eqt), mass (pl_masse),
+    star's spectral type (st_spectype), and the planet's general classification.
+    Temperature is calculated if not directly available.
+    
+    Args:
+        data (dict): Dictionary containing planet data (e.g., 'pl_eqt', 'st_teff', 'st_rad',
+                     'pl_orbsmax', 'pl_masse', 'st_spectype').
+        classification (str): The general classification of the planet (e.g., "Terran", "Superterran").
+    
+    Returns:
+        dict: A dictionary containing scores (0-100) and descriptive strings for:
+              - 'atmosphere_potential_score', 'atmosphere_potential_desc'
+              - 'liquid_water_potential_score', 'liquid_water_potential_desc'
+              - 'magnetic_activity_score', 'magnetic_activity_desc'
+              - 'presence_of_moons_score', 'presence_of_moons_desc'
+    """
     temp_str = data.get("pl_eqt")  # Obter como string ou None
     temp = None  # Inicializar temp numérico
 
@@ -383,17 +491,29 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
     }
 
 def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
-    """
-    Versão corrigida da função _prepare_data_for_aggregated_reports que é mais tolerante
-    a dados ausentes e garante que planetas com dados parciais sejam incluídos.
-    """
-    import logging
-    import pandas as pd
-    import numpy as np
-    import os
-    from datetime import datetime # Adicione se não estiver lá
-    import json # Adicione se não estiver lá
-        
+    """Prepares and transforms data from multiple planets for use in summary and combined reports.
+    
+    This function processes a list of individual planet report data dictionaries.
+    For each planet, it:
+    - Extracts and formats key parameters (name, classification, distance, etc.).
+    - Retrieves and normalizes various habitability scores (ESI, SPH, PHI, detailed components).
+    - Uses `enrich_atmosphere_water_magnetic_moons` for additional details.
+    - Calculates a 'Stellar Activity' score based on stellar age.
+    - Calculates an overall 'Habitability' score based on a weighted average of selected components.
+    - Formats travel time curiosities and surface gravity.
+    It is designed to be tolerant of missing data, providing defaults.
+    
+    Args:
+        all_planets_report_data (list): A list of dictionaries, where each dictionary
+                                        contains the processed data for a single planet
+                                        (typically the output structure from `process_planet_data`).
+        output_dir (str): Directory path used for saving debug information.
+    
+    Returns:
+        list: A list of dictionaries, each representing a planet with data structured
+              and formatted for inclusion in aggregated HTML reports. Returns an empty
+              list if no processable planet data is provided.
+    """        
     logger = logging.getLogger(__name__)
     logger.info(f"Starting _prepare_data_for_aggregated_reports with {len(all_planets_report_data)} planets")
         
@@ -815,14 +935,23 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
     return processed_data_list
 
 def generate_summary_report_html(all_planets_report_data, template_env, output_dir):
-    """
-    Versão corrigida da função generate_summary_report_html que é mais robusta
-    a dados ausentes ou parciais.
-    """
-    import os
-    import logging
-    from datetime import datetime
+    """Generates a summary HTML report for multiple planets.
     
+    Uses the `_prepare_data_for_aggregated_reports` function to process the input data
+    and then renders it using the "summary_template.html" Jinja2 template.
+    If an error occurs during generation, it attempts to create an error report.
+    
+    Args:
+        all_planets_report_data (list): A list of dictionaries, each containing
+                                        processed data for a single planet.
+        template_env (jinja2.Environment): The Jinja2 template environment.
+        output_dir (str): The directory where the HTML report will be saved.
+    
+    Returns:
+        str or None: The full path to the generated summary HTML report file.
+                     Returns path to an error report if main generation fails,
+                     or None if error report also fails.
+    """
     logger = logging.getLogger(__name__)
     
     # Função auxiliar para garantir que o diretório exista
@@ -894,14 +1023,24 @@ def generate_summary_report_html(all_planets_report_data, template_env, output_d
 
 
 def generate_combined_report_html(all_planets_report_data, template_env, output_dir):
-    """
-    Versão corrigida da função generate_combined_report_html que é mais robusta
-    a dados ausentes ou parciais.
-    """
-    import os
-    import logging
-    from datetime import datetime
+    """Generates a combined HTML report providing detailed comparisons for multiple planets.
     
+    Similar to the summary report, it uses `_prepare_data_for_aggregated_reports`
+    to process input data and then renders it using the "combined_template.html"
+    Jinja2 template.
+    If an error occurs, it attempts to create an error report.
+    
+    Args:
+        all_planets_report_data (list): A list of dictionaries, each containing
+                                        processed data for a single planet.
+        template_env (jinja2.Environment): The Jinja2 template environment.
+        output_dir (str): The directory where the HTML report will be saved.
+    
+    Returns:
+        str or None: The full path to the generated combined HTML report file.
+                     Returns path to an error report if main generation fails,
+                     or None if error report also fails.
+    """
     logger = logging.getLogger(__name__)
     
     # Função auxiliar para garantir que o diretório exista

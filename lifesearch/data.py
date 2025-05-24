@@ -16,6 +16,13 @@ CACHE_DIR = "/home/ubuntu/lifesearch/cache"
 CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
 
 def ensure_dir(directory):
+    """Ensures that a directory exists, creating it if necessary.
+    
+    Logs the creation of the directory if it did not already exist.
+    
+    Args:
+        directory (str): The path to the directory to check/create.
+    """
     if not os.path.exists(directory):
         os.makedirs(directory)
         logger.info(f"Created directory: {directory}")
@@ -24,16 +31,53 @@ ensure_dir(CACHE_DIR) # Ensure cache directory exists at startup
 
 # --- NORMALIZE NAMES FOR COMPARISON ---
 def normalize_name(name):
-    normalized = str(name).lower().strip()
-    normalized = re.sub(r'[^a-z0-9\s-]', '', normalized) # Keep spaces and hyphens
-    normalized = re.sub(r'\s+', ' ', normalized).strip()
-    return normalized
+    """Normalizes a planet name for consistent comparisons and cache key generation.
+    
+    Converts the name to lowercase, removes leading/trailing spaces,
+    replaces en-dashes with hyphens, removes other spaces, and keeps only
+    alphanumeric characters.
+    
+    Args:
+        name (str or None): The planet name to normalize.
+    
+    Returns:
+        str: The normalized planet name. Returns an empty string if the input
+             is None, not a string, or results in an empty string after processing.
+    """
+    if not name or not isinstance(name, str):
+        return ""
+    # Remover espaços extras, normalizar hífens e converter para minúsculas
+    name = name.strip().replace("–", "-").replace(" ", "")
+    return ''.join(c for c in name.lower() if c.isalnum()
+    )
 
 # --- CACHE HELPER FUNCTIONS ---
 def get_cache_filepath(planet_name_slug):
+    """Constructs the full file path for a cached planet data file.
+    
+    Args:
+        planet_name_slug (str): The normalized (slugified) name of the planet.
+    
+    Returns:
+        str: The absolute file path for the JSON cache file.
+    """
     return os.path.join(CACHE_DIR, f"{planet_name_slug}.json")
 
 def convert_numpy_types(data):
+    """Converts NumPy data types within a dictionary or pandas Series to standard Python types.
+    
+    This is primarily used to ensure data is JSON serializable before caching.
+    Handles np.integer, np.floating, np.bool_, pd.Timestamp, and NaN values.
+    
+    Args:
+        data (dict or pd.Series): The data structure containing potentially
+                                  NumPy-specific types.
+    
+    Returns:
+        dict: A dictionary with NumPy types converted to their Python equivalents
+              (e.g., np.int64 to int, np.nan to None).
+              Returns the original data if not a dict or Series, or logs a warning.
+    """
     if isinstance(data, pd.Series):
         data = data.to_dict()
     elif not isinstance(data, dict):
@@ -61,6 +105,17 @@ def convert_numpy_types(data):
     return cleaned_data
 
 def write_to_cache(planet_name_slug, data_series):
+    """Writes planet data to a JSON cache file.
+    
+    The data, typically a pandas Series or dict, is converted to ensure JSON
+    compatibility (e.g., NumPy types to Python types). A timestamp is
+    added to the cache entry.
+    
+    Args:
+        planet_name_slug (str): The normalized (slugified) name of the planet,
+                                used as part of the cache filename.
+        data_series (pd.Series or dict): The planet data to cache.
+    """
     cache_file = get_cache_filepath(planet_name_slug)
     data_to_cache_dict = {}
     try:
@@ -88,6 +143,18 @@ def write_to_cache(planet_name_slug, data_series):
         logger.error(f"Error writing to cache file {cache_file} for {planet_name_slug}: {e}. Problematic data snippet: {problematic_data_str[:500]}", exc_info=True)
 
 def read_from_cache(planet_name_slug):
+    """Reads planet data from a JSON cache file if it exists and is not expired.
+    
+    Checks for the cache file, validates its timestamp against CACHE_EXPIRATION_HOURS,
+    and attempts to load the JSON data.
+    
+    Args:
+        planet_name_slug (str): The normalized (slugified) name of the planet.
+    
+    Returns:
+        pd.Series or None: A pandas Series containing the cached planet data if found
+                           and valid, otherwise None.
+    """
     cache_file = get_cache_filepath(planet_name_slug)
     if os.path.exists(cache_file):
         try:
@@ -116,6 +183,20 @@ def read_from_cache(planet_name_slug):
 
 # --- FETCH EXOPLANET DATA FROM NASA EXOPLANET ARCHIVE API (with Caching) ---
 def fetch_exoplanet_data_api(planet_name):
+    """Fetches exoplanet data from the NASA Exoplanet Archive API, using a local cache.
+    
+    First, attempts to read data from the cache. If not found or expired,
+    it queries the NASA Exoplanet Archive TAP service for composite parameters
+    (pscomppars table). The fetched data is then cached for future requests.
+    
+    Args:
+        planet_name (str): The exact name of the planet as recognized by the API.
+                           Normalization for caching is handled internally.
+    
+    Returns:
+        pd.Series or None: A pandas Series containing the planet's data if found,
+                           otherwise None.
+    """
     planet_name_slug = normalize_name(planet_name).replace(" ", "_").replace("-", "_")
     cached_data_series = read_from_cache(planet_name_slug)
     if cached_data_series is not None:
@@ -162,6 +243,16 @@ def fetch_exoplanet_data_api(planet_name):
 
 # --- LOAD AND CLEAN HWC DATA ---
 def load_hwc_catalog(filepath="/home/ubuntu/lifesearch/data/hwc.csv"):
+    """Loads the Habitable Worlds Catalog (HWC) data from a CSV file.
+    
+    Args:
+        filepath (str): The path to the HWC CSV file.
+    
+    Returns:
+        pd.DataFrame: A pandas DataFrame containing the HWC data.
+                      Returns an empty DataFrame if the file is not found or
+                      an error occurs during loading.
+    """
     try:
         df = pd.read_csv(filepath)
         logger.info(f"Loaded PHL @ UPR ARECIBO -> HWC DATA - {filepath} with {len(df)} planets")
@@ -175,6 +266,16 @@ def load_hwc_catalog(filepath="/home/ubuntu/lifesearch/data/hwc.csv"):
 
 # --- LOAD HZGALLERY DATA ---
 def load_hzgallery_catalog(filepath="/home/ubuntu/lifesearch/data/table-hzgallery.csv"):
+    """Loads the Habitable Zone Gallery (HZGallery) data from a CSV file.
+    
+    Args:
+        filepath (str): The path to the HZGallery CSV file.
+    
+    Returns:
+        pd.DataFrame: A pandas DataFrame containing the HZGallery data.
+                      Returns an empty DataFrame if the file is not found or
+                      an error occurs during loading.
+    """
     try:
         df = pd.read_csv(filepath)
         logger.info(f"Loaded HABITABLE ZONE GALLERY (HZgallery) - {filepath} with {len(df)} planets")
@@ -188,6 +289,25 @@ def load_hzgallery_catalog(filepath="/home/ubuntu/lifesearch/data/table-hzgaller
 
 # --- MERGE DATA SOURCES ---
 def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_for_match=None, original_planet_name_query=None):
+    """Merges planet data from multiple sources: API, HWC, and HZGallery.
+    
+    Starts with API data (if available) and augments/fills missing values using
+    data from the HWC and HZGallery DataFrames, matching by normalized planet names.
+    Prioritizes API data, then fills with HWC, then HZGallery.
+    Specific logic is applied for certain fields like ESI from HWC ('pl_esi_hwc').
+    
+    Args:
+        api_data (pd.Series or dict or None): Data fetched from the NASA Exoplanet Archive API.
+        hwc_df (pd.DataFrame, optional): DataFrame loaded from the HWC catalog.
+        hz_gallery_df (pd.DataFrame, optional): DataFrame loaded from the HZGallery catalog.
+        planet_name_for_match (str, optional): The normalized planet name used for matching
+                                               in HWC and HZGallery.
+        original_planet_name_query (str, optional): The original planet name used in the API query,
+                                                    used as a fallback for 'pl_name' if missing.
+    
+    Returns:
+        dict: A dictionary containing the combined and augmented data for the planet.
+    """
     logger.debug(f"Starting merge_data_sources for: {planet_name_for_match} (original query: {original_planet_name_query})")
     if api_data is not None:
         if isinstance(api_data, pd.Series):

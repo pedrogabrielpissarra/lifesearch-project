@@ -7,6 +7,15 @@ logger = logging.getLogger(__name__)
 
 # --- Helper Functions ---
 def get_color_for_percentage(value, high_is_good=True):
+    """Determines a hex color code based on a percentage value.
+    
+    Args:
+        value (float or None): The percentage value (0-100).
+        high_is_good (bool): True if higher values are better, False if lower values are better.
+    
+    Returns:
+        str: Hex color code string. Grey for N/A or invalid values.
+    """
     if pd.isna(value) or value is None:
         return "#757575"  # Grey for N/A
     try:
@@ -48,6 +57,15 @@ def format_value(value, precision=2, default_na="N/A"):
         return default_na
 
 def calculate_travel_times(distance_ly):
+    """Calculates estimated travel times to a celestial body at various speeds.
+    
+    Args:
+        distance_ly (float or None): The distance to the celestial body in light-years.
+    
+    Returns:
+        dict: A dictionary containing travel time scenarios and their estimated durations.
+              Returns "N/A" for times if distance is invalid.
+    """
     logger.debug(f"Calculating travel times for distance: {distance_ly} ly")
     travel_info = {
         "scenario_1_label": "Current tech (~0.0057% c)", "scenario_1_time": "N/A",
@@ -73,6 +91,20 @@ def calculate_travel_times(distance_ly):
     return travel_info
 
 def classify_planet(mass_earth, radius_earth, temp_k):
+    """Classifies a planet based on its mass, radius, and temperature.
+    
+    Estimates mass from radius if mass is missing, using simplified power laws.
+    Assigns a mass class (e.g., Terran, Jovian) and a temperature class
+    (e.g., Mesoplanet, Psychroplanet).
+    
+    Args:
+        mass_earth (float or None): Planet's mass in Earth masses.
+        radius_earth (float or None): Planet's radius in Earth radii.
+        temp_k (float or None): Planet's equilibrium temperature in Kelvin.
+    
+    Returns:
+        str: A string combining the mass class and temperature class.
+    """
     logger.debug(f"Classifying planet with Mass: {mass_earth}, Radius: {radius_earth}, Temp: {temp_k}")
     # Estimate mass from radius if mass is missing (simplified)
     if pd.isna(mass_earth) and pd.notna(radius_earth) and radius_earth > 0:
@@ -112,6 +144,27 @@ def classify_planet(mass_earth, radius_earth, temp_k):
 
 # --- SEPHI Calculation (adapted from lifesearch11.py) ---
 def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, stellar_radius, stellar_teff, system_age, planet_density_val, planet_name_for_log):
+    """Calculates the Standard Exoplanet Habitability Index (SEPHI) and its components.
+    
+    SEPHI is based on four components (L1-L4) representing factors like
+    surface conditions, escape velocity, habitable zone position, and potential
+    for a magnetic field.
+    
+    Args:
+        planet_mass (float or None): Planet mass in Earth masses.
+        planet_radius (float or None): Planet radius in Earth radii.
+        orbital_period (float or None): Planet orbital period in days.
+        stellar_mass (float or None): Host star mass in Solar masses.
+        stellar_radius (float or None): Host star radius in Solar radii.
+        stellar_teff (float or None): Host star effective temperature in Kelvin.
+        system_age (float or None): System age in Gyr.
+        planet_density_val (float or None): Planet density in g/cm^3.
+        planet_name_for_log (str): Name of the planet for logging purposes.
+    
+    Returns:
+        tuple: (SEPHI_score, L1, L2, L3, L4) all as percentages, or
+               (None, None, None, None, None) if core parameters are missing/invalid.
+    """
     logger.debug(f"Calculating SEPHI for {planet_name_for_log} with inputs: pm={planet_mass}, pr={planet_radius}, po={orbital_period}, sm={stellar_mass}, sr={stellar_radius}, st={stellar_teff}, sa={system_age}, pdens={planet_density_val}")
     params_to_check = [planet_mass, planet_radius, orbital_period, stellar_mass, stellar_radius, stellar_teff, system_age]
     param_names = ["pl_masse", "pl_rade", "pl_orbper", "st_mass", "st_rad", "st_teff", "st_age"]
@@ -210,15 +263,32 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
 
 # --- Core Calculation Functions ---
 def calculate_esi_score(planet_data, weights):
+    """Calculates the Earth Similarity Index (ESI) for a planet.
+    
+    The ESI measures similarity to Earth based on radius, density, and
+    equilibrium temperature, weighted by the provided weights.
+    
+    Args:
+        planet_data (dict): Dictionary containing planet parameters like
+                            'pl_rade', 'pl_dens', 'pl_eqt'.
+        weights (dict): Dictionary of weights for 'Size', 'Density',
+                        and 'Habitable Zone' (temperature).
+    
+    Returns:
+        tuple: (float ESI_score (0-100), str color_code_for_ESI).
+               Returns 0.0 if no valid components are found.
+    """
     logger.debug(f"Calculating ESI for planet: {planet_data.get('pl_name', 'Unknown')}")
     earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
     esi_factors_map = {
         "pl_rade": weights.get("Size", 1.0),
         "pl_dens": weights.get("Density", 1.0),
-        "pl_eqt": weights.get("Habitable Zone", 1.0) 
+        "pl_eqt": weights.get("Habitable Zone", 1.0)
     }
     esi_components = []
     num_params = 0
+    max_weight = 1.0
+
     for param_key, weight_val in esi_factors_map.items():
         planet_val = planet_data.get(param_key)
         earth_val = earth_params.get(param_key)
@@ -227,29 +297,49 @@ def calculate_esi_score(planet_data, weights):
             try:
                 planet_val_fl = float(planet_val)
                 earth_val_fl = float(earth_val)
-                if (planet_val_fl + earth_val_fl) == 0: similarity_component = 0.0
-                else: similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
-                if similarity_component < 0: similarity_component = 0.0
-                esi_components.append(similarity_component ** weight_val)
-                num_params +=1
-                logger.debug(f"ESI component for {param_key}: {similarity_component ** weight_val}")
+                if (planet_val_fl + earth_val_fl) == 0:
+                    similarity_component = 0.0
+                else:
+                    similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
+                if similarity_component < 0:
+                    similarity_component = 0.0
+                # Quando weight_val = 0.0, usar a similaridade real
+                scaled_component = similarity_component if weight_val == 0.0 else (
+                    similarity_component + (1.0 - similarity_component) * (weight_val / max_weight)
+                )
+                esi_components.append(scaled_component)
+                num_params += 1
+                logger.debug(f"ESI scaled component for {param_key}: {scaled_component}, Similarity: {similarity_component}")
             except (ValueError, TypeError) as e:
                 logger.warning(f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}")
         else:
-            logger.debug(f"Skipping ESI param {param_key} due to missing data.")
-            
+            logger.debug(f"Skipping ESI param {param_key} due to missing or invalid data: planet_val={planet_val}, earth_val={earth_val}")
+
     if not esi_components or num_params == 0:
-        logger.debug("No valid ESI components found.")
+        logger.warning("No valid ESI components found.")
         return 0.0, get_color_for_percentage(0.0)
-    
-    product_of_components = 1.0
-    for comp in esi_components:
-        product_of_components *= comp
-    final_esi = (product_of_components ** (1.0 / num_params)) * 100 if num_params > 0 else 0.0
+
+    final_esi = (sum(esi_components) / num_params) * 100 if num_params > 0 else 0.0
     logger.info(f"Final ESI for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
     return round(final_esi, 2), get_color_for_percentage(final_esi)
 
 def calculate_sph_score(planet_data, weights):
+    """Calculates the Standard Primary Habitability (SPH) score for a planet.
+    
+    The SPH is primarily based on the planet's equilibrium temperature (pl_eqt)
+    and its suitability for Earth-like life (water in liquid state).
+    The 'weights' argument is present for consistency but not directly used
+    in the current SPH calculation logic.
+    
+    Args:
+        planet_data (dict): Dictionary containing planet parameters,
+                            especially 'pl_eqt' (equilibrium temperature in K).
+        weights (dict): (Currently unused by this function but kept for API consistency).
+    
+    Returns:
+        tuple: (float SPH_score (0-100), str color_code_for_SPH).
+               Returns 0.0 if temperature is N/A.
+    """
     logger.debug(f"Calculating SPH for planet: {planet_data.get('pl_name', 'Unknown')}")
     temp_k = planet_data.get("pl_eqt")
     score = 0.0
@@ -274,34 +364,106 @@ def calculate_sph_score(planet_data, weights):
     return round(final_sph, 2), get_color_for_percentage(final_sph)
 
 def calculate_phi_score(planet_data, phi_weights):
+    """Calculates a Planetary Habitability Index (PHI) score.
+    
+    PHI is based on factors like "Solid Surface", "Stable Energy",
+    "Life Compounds" (currently not auto-assessed), and "Stable Orbit".
+    These factors are weighted according to phi_weights.
+    
+    Args:
+        planet_data (dict): Dictionary containing planet and star parameters
+                            (e.g., 'classification', 'st_spectype', 'st_age', 'pl_orbeccen').
+        phi_weights (dict): Dictionary of weights for PHI factors.
+    
+    Returns:
+        tuple: (float PHI_score (0-100), str color_code_for_PHI).
+               Returns 0.0 if total weight is zero.
+    """
     logger.debug(f"Calculating PHI for planet: {planet_data.get('pl_name', 'Unknown')}")
-    factors_present_scores = {"Solid Surface": 0.0, "Stable Energy": 0.0, "Life Compounds": 0.0, "Stable Orbit": 0.0}
+    
+    factors_present_scores = {
+        "Solid Surface": 0.0,
+        "Stable Energy": 0.0,
+        "Life Compounds": 0.0,
+        "Stable Orbit": 0.0
+    }
+
+    # Avaliação automática de "Solid Surface"
     if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
         factors_present_scores["Solid Surface"] = 0.8
+        logger.debug("Solid Surface detected: score 0.8")
+
+    # Avaliação automática de "Stable Energy"
     st_spectype = planet_data.get("st_spectype", "")
     st_age = planet_data.get("st_age")
     if isinstance(st_spectype, str) and (st_spectype.startswith("G") or st_spectype.startswith("K")) and pd.notna(st_age):
         try:
-            if 1.0 < float(st_age) < 8.0: factors_present_scores["Stable Energy"] = 0.7
-        except (ValueError, TypeError): pass # st_age might not be floatable
+            st_age_float = float(st_age.strip()) if isinstance(st_age, str) else float(st_age)
+            if 1.0 < st_age_float < 8.0:
+                factors_present_scores["Stable Energy"] = 0.7
+                logger.debug("Stable Energy conditions met: score 0.7")
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"st_age could not be converted to float for Stable Energy: {st_age}. Error: {e}")
+
+    # Avaliação automática de "Stable Orbit"
     pl_orbeccen = planet_data.get("pl_orbeccen")
     if pd.notna(pl_orbeccen):
         try:
-            if float(pl_orbeccen) < 0.2: factors_present_scores["Stable Orbit"] = 0.9
-        except (ValueError, TypeError): pass
+            pl_orbeccen_float = float(pl_orbeccen.strip()) if isinstance(pl_orbeccen, str) else float(pl_orbeccen)
+            if pl_orbeccen_float < 0.2:
+                factors_present_scores["Stable Orbit"] = 0.9
+                logger.debug("Stable Orbit detected: score 0.9")
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"pl_orbeccen could not be converted to float for Stable Orbit: {pl_orbeccen}. Error: {e}")
+
     logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
-    weighted_sum, total_weight = 0, 0
-    for factor_name, default_weight in phi_weights.items():
+
+    phi_components = []
+    num_params = 0
+    max_weight = 0.25
+
+    for factor_name, weight_val in phi_weights.items():
         factor_score = factors_present_scores.get(factor_name, 0.0)
-        weight = default_weight
-        weighted_sum += factor_score * weight
-        total_weight += weight
-    final_phi = (weighted_sum / total_weight) * 100 if total_weight != 0 else 0.0
-    final_phi = max(0, min(final_phi, 100))
+        logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
+        # Quando weight_val = 0.0, usar o score real; quando weight_val = 0.25, interpolar para 1.0
+        scaled_component = factor_score if weight_val == 0.0 else (
+            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
+        )
+        phi_components.append(scaled_component)
+        num_params += 1
+        logger.debug(f"PHI scaled component for {factor_name}: {scaled_component}, Original score: {factor_score}")
+
+    if not phi_components or num_params == 0:
+        logger.warning("No valid PHI components found.")
+        return 0.0, get_color_for_percentage(0.0)
+
+    final_phi = (sum(phi_components) / num_params) * 100 if num_params > 0 else 0.0
+    final_phi = max(0.0, min(final_phi, 100.0))
+
     logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
+
     return round(final_phi, 2), get_color_for_percentage(final_phi)
 
+
 def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weights_config):
+    """Calculates a dictionary of detailed habitability scores for a planet.
+    
+    Scores cover aspects like Size, Density, Mass, Atmosphere Potential,
+    Liquid Water Potential, Habitable Zone Position, Host Star Type,
+    System Age, Star Metallicity, and Orbital Eccentricity.
+    The 'weights_config' argument is present for consistency but not
+    directly used for individual score calculations here.
+    
+    Args:
+        planet_data_dict (dict): Dictionary of planet and stellar parameters.
+        hz_data_tuple (tuple): Tuple containing habitable zone boundaries
+                               (ohz_in, chz_in, chz_out, ohz_out, teqa) or None.
+        weights_config (dict): (Currently unused by this function but kept for API consistency).
+    
+    Returns:
+        dict: A dictionary where keys are score names (e.g., "Size") and
+              values are tuples of (score_value, color_code).
+    """
     logger.debug(f"Calculating detailed scores for: {planet_data_dict.get('pl_name', 'Unknown')}")
     scores = {}
     def to_float_or_none(val):
@@ -417,6 +579,33 @@ def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weig
 
 # --- Main Data Processing Function ---
 def process_planet_data(planet_name, combined_data, weights_config):
+    """Processes raw planet data to calculate various metrics and prepare for reporting.
+    
+    This function orchestrates calls to:
+    - classify_planet
+    - calculate_travel_times
+    - calculate_esi_score, calculate_sph_score, calculate_phi_score
+    - calculate_detailed_habitability_scores
+    - calculate_sephi
+    It also formats data for display (e.g., star info, orbit info).
+    
+    Args:
+        planet_name (str): The name of the planet.
+        combined_data (pd.Series or dict): Combined data for the planet from various sources.
+        weights_config (dict): Configuration for weights used in ESI, SPH, PHI calculations.
+    
+    Returns:
+        dict: A comprehensive dictionary containing:
+              - "planet_data_dict": The processed and enriched planet data.
+              - "scores_for_report": Main habitability scores (ESI, SPH, PHI, detailed).
+              - "sephi_scores_for_report": SEPHI scores.
+              - "hz_data_tuple": Habitable zone data.
+              - "star_data_for_plot": Data for plotting star information.
+              - "classification_display": Planet classification string.
+              - "travel_curiosities": Travel time estimations.
+              - "star_info": Formatted stellar parameters.
+              - "orbit_info": Formatted orbital parameters.
+    """
     logger.info(f"Processing data for planet: {planet_name}")
     logger.debug(f"Initial combined_data for {planet_name}:\n{combined_data}")
 
@@ -529,12 +718,24 @@ def process_planet_data(planet_name, combined_data, weights_config):
     
     # Add formatted direct values to planet_data_dict for easier template access if needed
     # This ensures that if a template directly accesses e.g. {{ planet_info.pl_rade }},
-    # it gets a formatted value or N/A.
+    # it gets a formatted value or N/A, but keeps numerical fields as floats for calculations.
     fields_to_format_directly = [
         "pl_rade", "pl_masse", "pl_dens", "pl_eqt", "pl_orbper", "pl_orbsmax", 
-        "pl_orbeccen", "pl_orbincl", "sy_dist", "st_teff", "st_rad", "st_mass",
-        "st_lum", "st_age", "st_met", "discoverymethod", "disc_year", "disc_facility"
+        "sy_dist", "st_teff", "st_rad", "st_mass", "st_lum",
+        "discoverymethod", "disc_year", "disc_facility"
     ]
+    # Keep these fields as floats for calculations
+    numerical_fields_to_preserve = ["pl_orbeccen", "st_age", "st_met"]
+    for field in fields_to_format_directly:
+        precision = 3 if field in ["st_lum", "st_met"] else 2
+        if field == "st_teff" or field == "disc_year": precision = 0
+        planet_data_dict[field] = format_value(planet_data_dict.get(field), precision=precision)
+    for field in numerical_fields_to_preserve:
+        try:
+            value = planet_data_dict.get(field)
+            planet_data_dict[field] = float(value) if pd.notna(value) else None
+        except (ValueError, TypeError):
+            planet_data_dict[field] = None
     for field in fields_to_format_directly:
         precision = 3 if field in ["pl_orbeccen", "st_lum", "st_met"] else 2
         if field == "st_teff" or field == "disc_year": precision = 0
