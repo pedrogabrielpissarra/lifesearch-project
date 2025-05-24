@@ -1,0 +1,35 @@
+name: Build Docker Image for LifeSearch
+
+# Eventos que disparam o workflow
+on:
+  push:
+    branches: [ main ]  # Ajuste para o nome do seu branch principal (ex: master, main)
+  pull_request:
+    branches: [ main ]  # Ajuste para o nome do seu branch principal
+
+jobs:
+  build_docker_image:
+    runs-on: ubuntu-latest  # Especifica o tipo de máquina virtual para rodar o job
+
+    steps:
+      # 1. Faz o checkout do seu código do repositório
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Ação oficial para checkout
+
+      # 2. Configura o Docker Buildx (necessário para builds mais avançados, boa prática)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 3. Constrói a imagem Docker
+      - name: Build Docker image
+        run: |
+          docker build -t lifesearch-app:latest -f Dockerfile .
+        # Se seu Dockerfile tem um nome diferente de "Dockerfile", 
+        # ajuste o comando, por exemplo:
+        # docker build -t lifesearch-app:latest -f lifesearch-docker.dockerfile . 
+        # (lembrando que o nome padrão é "Dockerfile", como corrigimos)
+
+      # (Opcional) Você pode adicionar mais passos aqui, como:
+      # - Fazer login em um registro de contêiner (Docker Hub, GitHub Container Registry)
+      # - Fazer push da imagem construída
+      # - Rodar testes dentro do contêiner
