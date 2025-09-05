@@ -81,6 +81,71 @@ def format_float_field(value, precision=".2f"):
     except (ValueError, TypeError):
         return str(value)  # Return as string if conversion fails
 
+# Novas funções auxiliares:
+def get_score_description(scores_dict, field_name, classification):
+    score_info = get_score_info(scores_dict, field_name)
+    score = score_info["score"]
+    if score >= 80:
+        desc = "Likely"
+    elif score >= 50:
+        desc = "Possible"
+    else:
+        desc = "Unlikely"
+    return {
+        "score": score,
+        "color": score_info["color"],
+        "text": desc
+    }
+
+def get_score_description_bio(scores_dict, field_name, pl_eqt):
+    score_info = get_score_info(scores_dict, field_name)
+    score = score_info["score"]
+    try:
+        temp = float(pl_eqt) if pl_eqt is not None else None
+        if temp and temp > 1000:
+            desc = "Unlikely (Too Hot)"
+        elif score >= 60:
+            desc = "Likely"
+        elif score >= 30:
+            desc = "Possible"
+        else:
+            desc = "Unlikely"
+    except:
+        desc = "Unlikely"
+    return {
+        "score": score,
+        "color": score_info["color"],
+        "text": desc
+    }
+
+def get_score_description_moons(scores_dict, field_name, classification, planet_data):
+    score_info = get_score_info(scores_dict, field_name)
+    score = score_info["score"]
+    mass = to_float_or_none(planet_data.get("pl_masse"))
+    pl_orbsmax = to_float_or_none(planet_data.get("pl_orbsmax"))
+    if "Neptunian" in classification or "Jovian" in classification:
+        desc = "Likely"
+    elif "Terran" in classification or "Superterran" in classification:
+        if mass is not None and mass > 0.5 and pl_orbsmax is not None and pl_orbsmax > 1:
+            desc = "Highly Possible"
+        elif mass is not None and mass > 0.5:
+            desc = "Possible"
+        else:
+            desc = "Unlikely"
+    else:
+        desc = "Unlikely"
+    return {
+        "score": score,
+        "color": score_info["color"],
+        "text": desc
+    }
+
+def to_float_or_none(val):
+    if pd.isna(val) or val is None: return None
+    try: return float(val)
+    except (ValueError, TypeError): return None
+
+
 # --- Plotting Functions ---
 def plot_habitable_zone(planet_data, star_data, hz_limits, output_path, planet_name_slug):
     """Generates and saves a plot of the habitable zone for a given planet.
@@ -490,34 +555,70 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
         "presence_of_moons_desc": moons_desc,
     }
 
-def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
-    """Prepares and transforms data from multiple planets for use in summary and combined reports.
-    
-    This function processes a list of individual planet report data dictionaries.
-    For each planet, it:
-    - Extracts and formats key parameters (name, classification, distance, etc.).
-    - Retrieves and normalizes various habitability scores (ESI, SPH, PHI, detailed components).
-    - Uses `enrich_atmosphere_water_magnetic_moons` for additional details.
-    - Calculates a 'Stellar Activity' score based on stellar age.
-    - Calculates an overall 'Habitability' score based on a weighted average of selected components.
-    - Formats travel time curiosities and surface gravity.
-    It is designed to be tolerant of missing data, providing defaults.
+def get_score_info(scores_dict, field_name):
+    """Extracts score information from a scores dictionary.
     
     Args:
-        all_planets_report_data (list): A list of dictionaries, where each dictionary
-                                        contains the processed data for a single planet
-                                        (typically the output structure from `process_planet_data`).
-        output_dir (str): Directory path used for saving debug information.
+        scores_dict (dict): Dictionary of scores.
+        field_name (str): Name of the field to extract.
     
     Returns:
-        list: A list of dictionaries, each representing a planet with data structured
-              and formatted for inclusion in aggregated HTML reports. Returns an empty
-              list if no processable planet data is provided.
-    """        
-    logger = logging.getLogger(__name__)
+        dict: Dictionary with score, color, and text.
+    """
+    default_numeric_score = 0.0
+    default_color = "#808080"
+    default_text = "N/A"
+
+    if not isinstance(scores_dict, dict):
+        logger.warning(f"scores_dict is not a dict for field '{field_name}'. Using default score info.")
+        return {"score": default_numeric_score, "color": default_color, "text": default_text}
+    
+    # Verificar se o campo existe como objeto
+    if isinstance(scores_dict.get(field_name), dict):
+        score_dict = scores_dict.get(field_name)
+        return {
+            "score": score_dict.get("score", default_numeric_score),
+            "color": score_dict.get("color", default_color),
+            "text": score_dict.get("text", default_text)
+        }
+    
+    # Verificar se o campo existe como tupla
+    score_tuple = scores_dict.get(field_name)
+    
+    if not isinstance(score_tuple, tuple) or len(score_tuple) < 1 or pd.isna(score_tuple[0]):
+        if not (isinstance(score_tuple, tuple) and len(score_tuple) >= 1 and pd.isna(score_tuple[0])):
+            logger.debug(f"Invalid or missing score_tuple for field '{field_name}'. score_tuple: {score_tuple}. Using default score info.")
+        return {"score": default_numeric_score, "color": default_color, "text": default_text}
+
+    raw_score_value = score_tuple[0]
+    numeric_val_for_format = default_numeric_score
+
+    try:
+        numeric_val_for_format = float(raw_score_value)
+    except (ValueError, TypeError):
+        logger.warning(f"Score value '{raw_score_value}' for field '{field_name}' is not a valid number. Defaulting numeric component to {default_numeric_score} for formatting.")
+    
+    color_val = default_color
+    if len(score_tuple) > 1 and score_tuple[1] is not None and isinstance(score_tuple[1], str) and score_tuple[1].startswith("#"):
+        color_val = score_tuple[1]
+    else:
+        color_val = get_color_for_percentage(numeric_val_for_format)
+
+    text_val = str(raw_score_value)
+    if len(score_tuple) > 2 and score_tuple[2] is not None and str(score_tuple[2]).strip():
+        text_val = str(score_tuple[2])
+    
+    return {
+        "score": numeric_val_for_format,
+        "color": color_val,
+        "text": text_val
+    }
+
+
+def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
     logger.info(f"Starting _prepare_data_for_aggregated_reports with {len(all_planets_report_data)} planets")
-        
-    # Salvar os dados de entrada para depuração (se desejar manter)
+    
+    # Salvar os dados de entrada para depuração
     debug_input_path = os.path.join(output_dir, "debug_input_all_planets_report_data_AGGREGATED_INPUT.json")
     try:
         with open(debug_input_path, "w", encoding="utf-8") as f_debug:
@@ -527,99 +628,64 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
         logger.error(f"Could not save input for debugging: {e_debug}")
 
     def safe_get(dictionary, key, default="N/A"):
-        # ... (sua implementação de safe_get)
         if dictionary is None:
             return default
         value = dictionary.get(key)
-        if pd.isna(value) or value is None:
+        if pd.isna(value) or value is None or str(value).strip().lower() == "n/a":
             return default
         return value
     
-    def format_float_field(value, precision=".2f"):
-        # ... (sua implementação de format_float_field)
-        if pd.isna(value) or value == "N/A" or str(value).strip() == "":
-            return "N/A"
-        try:
-            return f"{float(str(value)):{precision}}"
-        except (ValueError, TypeError):
-            return str(value)
-        
+    def find_key_insensitive(dictionary, target_key):
+        if dictionary is None:
+            return None
+        for key in dictionary.keys():
+            if key.lower() == target_key.lower():
+                return dictionary[key]
+        return None
 
-# Esta é a função get_score_info DENTRO de _prepare_data_for_aggregated_reports
     def get_score_info(scores_dict, field_name):
-            # Valores padrão
-            default_numeric_score = 0.0
-            default_color = "#808080"  # Cinza para N/A ou erro
-            default_text = "N/A"
+        default_numeric_score = 0.0
+        default_color = "#808080"
+        default_text = "N/A"
 
-            if not isinstance(scores_dict, dict):
-                logger.warning(f"scores_dict is not a dict for field '{field_name}'. Using default score info.")
-                return {"score": default_numeric_score, "color": default_color, "text": default_text}
-            
-            score_tuple = scores_dict.get(field_name)
-            
-            # Se não houver tupla, ou a tupla for muito curta, ou o primeiro elemento for pd.isna (None, np.nan, etc.)
-            if not isinstance(score_tuple, tuple) or len(score_tuple) < 1 or pd.isna(score_tuple[0]):
-                # Log se o score_tuple for inválido mas não pd.isna
-                if not (isinstance(score_tuple, tuple) and len(score_tuple) >=1 and pd.isna(score_tuple[0])):
-                     logger.debug(f"Invalid or missing score_tuple for field '{field_name}'. score_tuple: {score_tuple}. Using default score info.")
-                return {"score": default_numeric_score, "color": default_color, "text": default_text}
+        if not isinstance(scores_dict, dict):
+            logger.warning(f"scores_dict is not a dict for field '{field_name}'. Using default score info.")
+            return {"score": default_numeric_score, "color": default_color, "text": default_text}
+        
+        score_tuple = scores_dict.get(field_name)
+        
+        if not isinstance(score_tuple, tuple) or len(score_tuple) < 1 or pd.isna(score_tuple[0]):
+            if not (isinstance(score_tuple, tuple) and len(score_tuple) >= 1 and pd.isna(score_tuple[0])):
+                logger.debug(f"Invalid or missing score_tuple for field '{field_name}'. score_tuple: {score_tuple}. Using default score info.")
+            return {"score": default_numeric_score, "color": default_color, "text": default_text}
 
-            raw_score_value = score_tuple[0]
-            numeric_val_for_format = default_numeric_score # Inicializa com default
+        raw_score_value = score_tuple[0]
+        numeric_val_for_format = default_numeric_score
 
-            try:
-                # Tenta converter o valor bruto para float. Se já for float/int, tudo bem.
-                # Se for uma string como "50.0", será convertido.
-                # Se for uma string como "N/A", levantará ValueError.
-                numeric_val_for_format = float(raw_score_value)
-            except (ValueError, TypeError):
-                # Se a conversão falhar, não é um "número real".
-                # numeric_val_for_format permanece como default_numeric_score (0.0).
-                logger.warning(f"Score value '{raw_score_value}' for field '{field_name}' is not a valid number. Defaulting numeric component to {default_numeric_score} for formatting.")
-            
-            # Determina a cor: usa a cor da tupla se disponível e válida, senão calcula ou usa default.
-            color_val = default_color # Cor padrão
-            if len(score_tuple) > 1 and score_tuple[1] is not None and isinstance(score_tuple[1], str) and score_tuple[1].startswith("#"):
-                color_val = score_tuple[1]
-            else: # Se não houver cor válida na tupla, calcula baseada no valor numérico
-                color_val = get_color_for_percentage(numeric_val_for_format) 
-
-            # Determina o texto: usa a descrição da tupla se disponível, senão usa o valor bruto como string.
-            text_val = str(raw_score_value) # Default para o valor bruto como string
-            if len(score_tuple) > 2 and score_tuple[2] is not None and str(score_tuple[2]).strip():
-                text_val = str(score_tuple[2])
-            
-            return {
-                "score": numeric_val_for_format, # GARANTIDO que é float
-                "color": color_val,
-                "text": text_val
-            }
-    
-    # Função para obter cor baseada em porcentagem
-    def get_color_for_percentage(percentage):
-        if percentage is None or pd.isna(percentage):
-            return "#808080"  # Grey for N/A
         try:
-            percentage = float(percentage)
+            numeric_val_for_format = float(raw_score_value)
         except (ValueError, TypeError):
-            return "#808080"  # Grey for invalid
-
-        if percentage >= 80:
-            return "#28a745"  # Green (Bootstrap success)
-        elif percentage >= 60:
-            return "#90ee90"  # Light Green (PaleGreen)
-        elif percentage >= 40:
-            return "#ffc107"  # Amber (Bootstrap warning)
-        elif percentage >= 20:
-            return "#fd7e14"  # Orange (Bootstrap orange)
+            logger.warning(f"Score value '{raw_score_value}' for field '{field_name}' is not a valid number. Defaulting numeric component to {default_numeric_score} for formatting.")
+        
+        color_val = default_color
+        if len(score_tuple) > 1 and score_tuple[1] is not None and isinstance(score_tuple[1], str) and score_tuple[1].startswith("#"):
+            color_val = score_tuple[1]
         else:
-            return "#dc3545"  # Red (Bootstrap danger)
-    
+            color_val = get_color_for_percentage(numeric_val_for_format)
+
+        text_val = str(raw_score_value)
+        if len(score_tuple) > 2 and score_tuple[2] is not None and str(score_tuple[2]).strip():
+            text_val = str(score_tuple[2])
+        
+        return {
+            "score": numeric_val_for_format,
+            "color": color_val,
+            "text": text_val
+        }
+
     processed_data_list = []
     
     for p_data in all_planets_report_data:
-        # Verificar se temos dados mínimos necessários
         planet_raw_TAP_data = p_data.get("planet_data_dict", {})
         if not planet_raw_TAP_data:
             logger.warning("Skipping planet with no raw data dictionary")
@@ -630,13 +696,15 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
         
         logger.info(f"Processing {planet_name_for_log} for aggregated reports")
         
-        # Obter scores e dados de forma segura
+        # Logar todas as chaves disponíveis em planet_raw_TAP_data para depuração
+        logger.debug(f"Available keys in planet_raw_TAP_data for {planet_name_for_log}: {list(planet_raw_TAP_data.keys())}")
+        
+        # Obter scores e dados
         scores_processed = p_data.get("scores_for_report", {})
         sephi_processed = p_data.get("sephi_scores_for_report", {})
         hz_data_tuple_raw = p_data.get("hz_data_tuple")
 
-
-        # Obter classificação de forma segura
+        # Obter classificação
         classification_text = safe_get(planet_raw_TAP_data, "classification", "Unknown")
         if "classification_final_display" in planet_raw_TAP_data:
             classification_text = safe_get(planet_raw_TAP_data, "classification_final_display", classification_text)
@@ -667,14 +735,14 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
         
         logger.debug(f"Planet {planet_name_for_log}: st_age='{st_age_str}', Stellar Activity Description (from logic): '{stellar_activity_desc_for_log}', Score: {stellar_activity_score_val}%")
         # --- FIM DO NOVO CÁLCULO ---
-        
+
+        # Preparar scores para o template
         scores_for_template = {
             "ESI": get_score_info(scores_processed, "ESI"),
             "SPH": get_score_info(scores_processed, "SPH"),
             "PHI": get_score_info(scores_processed, "PHI"),
             "Host_Star_Type": get_score_info(scores_processed, "Host Star Type"),
             "System_Age": get_score_info(scores_processed, "System Age"),
-                
             # >>>>> MODIFICAÇÃO PARA STELLAR ACTIVITY <<<<<
             "Stellar_Activity": {
                 # Supondo que 'stellar_activity_score' deve vir de planet_raw_TAP_data
@@ -683,9 +751,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
                 "color": get_color_for_percentage(stellar_activity_score_val),
                 "text": stellar_activity_desc_for_log, # Tenta pegar uma descrição se houver
             },   
-
             "Orbital_Eccentricity": get_score_info(scores_processed, "Orbital Eccentricity"),
-                
             # >>>>> USAR enriched_details AQUI <<<<<
             "Atmosphere_Potential": {
                 "score": np.clip(float(enriched_details.get("atmosphere_potential_score", 0.0)), 0, 100),
@@ -707,125 +773,81 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
                 "color": get_color_for_percentage(float(enriched_details.get("presence_of_moons_score", 0.0))),
                 "text": enriched_details.get("presence_of_moons_desc", "N/A")
             },
-            # ... (restante dos scores como Habitable_Zone_Position, Size, etc.)
+            "Magnetic_Activity": get_score_info(scores_processed, "Magnetic Activity"),
             "Habitable_Zone_Position": get_score_info(scores_processed, "Habitable Zone Position"),
+            "Temperature": get_score_description(scores_processed, "Temperature", classification_text),
+            "Bio Potential": get_score_description_bio(scores_processed, "Bio Potential", planet_raw_TAP_data.get("pl_eqt")),
+            "Presence of Moons": get_score_description_moons(scores_processed, "Presence of Moons", classification_text, planet_raw_TAP_data),
             "Size": get_score_info(scores_processed, "Size"),
             "Density": get_score_info(scores_processed, "Density"),
             "Mass": get_score_info(scores_processed, "Mass"),
             "Star_Metallicity": get_score_info(scores_processed, "Star Metallicity")
         }
 
-        
-        # Tentar obter campos extras do dicionário de dados do planeta
-        for field in enriched_details.keys():
-            if field in planet_raw_TAP_data:
-                enriched_details[field] = planet_raw_TAP_data[field]
-        
-        # Função auxiliar para obter informações de score
-        def get_score_info(scores_dict, field_name):
-            if not isinstance(scores_dict, dict):
-                return {"score": 0.0, "color": "#757575", "text": "N/A"}
-            
-            score_tuple = scores_dict.get(field_name)
-            if not isinstance(score_tuple, tuple) or len(score_tuple) < 2 or pd.isna(score_tuple[0]):
-                return {"score": 0.0, "color": "#757575", "text": "N/A"}
-            
-            return {
-                "score": score_tuple[0],
-                "color": score_tuple[1],
-                "text": score_tuple[2] if len(score_tuple) > 2 else "N/A"
-            }
-        
-        # Preparar scores para o template com valores padrão para campos ausentes
-        scores_for_template = {
-            "ESI": get_score_info(scores_processed, "ESI"),
-            "SPH": get_score_info(scores_processed, "SPH"),
-            "PHI": get_score_info(scores_processed, "PHI"),
-            "Host_Star_Type": get_score_info(scores_processed, "Host Star Type"),
-            "System_Age": get_score_info(scores_processed, "System Age"),
-            "Stellar_Activity": {
-                "score": stellar_activity_score_val,
-                "color": get_color_for_percentage(stellar_activity_score_val),
-                "text": stellar_activity_desc_for_log, 
-            },            
-            "Orbital_Eccentricity": get_score_info(scores_processed, "Orbital Eccentricity"),
-            "Atmosphere_Potential": get_score_info(scores_processed, "Atmosphere Potential"),
-            "Liquid_Water_Potential": get_score_info(scores_processed, "Liquid Water Potential"),
-            "Magnetic_Activity": {
-                "score": np.clip(float(enriched_details.get("magnetic_activity_score", 0.0)), 0, 100),
-                "color": get_color_for_percentage(float(enriched_details.get("magnetic_activity_score", 0.0))),
-                "text": enriched_details.get("magnetic_activity_desc", "N/A") 
-            },
-            "Presence_of_Moons": {
-                "score": np.clip(float(enriched_details.get("presence_of_moons_score", 0.0)), 0, 100),
-                "color": get_color_for_percentage(float(enriched_details.get("presence_of_moons_score", 0.0))),
-                "text": enriched_details.get("presence_of_moons_desc", "N/A")
-            },
-            "Habitable_Zone_Position": get_score_info(scores_processed, "Habitable Zone Position"),
-            "Size": get_score_info(scores_processed, "Size"),
-            "Density": get_score_info(scores_processed, "Density"),
-            "Mass": get_score_info(scores_processed, "Mass"),
-            "Star_Metallicity": get_score_info(scores_processed, "Star Metallicity")
-        }
-        
-        # Preparar scores SEPHI para o template
+        # Preparar scores SEPHI
         sephi_scores_for_template = {
-            "SEPHI": get_score_info(sephi_processed, "SEPHI"),
-            "SEPHI_L1": get_score_info(sephi_processed, "L1 (Surface)"),
-            "SEPHI_L2": get_score_info(sephi_processed, "L2 (Escape Velocity)"),
-            "SEPHI_L3": get_score_info(sephi_processed, "L3 (Habitable Zone)"),
-            "SEPHI_L4": get_score_info(sephi_processed, "L4 (Magnetic Field)")
+            "SEPHI": {"score": 0.0, "color": "#808080", "text": "N/A"},
+            "SEPHI_L1": {"score": 0.0, "color": "#808080", "text": "N/A"},
+            "SEPHI_L2": {"score": 0.0, "color": "#808080", "text": "N/A"},
+            "SEPHI_L3": {"score": 0.0, "color": "#808080", "text": "N/A"},
+            "SEPHI_L4": {"score": 0.0, "color": "#808080", "text": "N/A"}
         }
         
+        if isinstance(sephi_processed, dict):
+            for key, display_key in [
+                ("SEPHI", "SEPHI"),
+                ("L1 (Surface)", "SEPHI_L1"),
+                ("L2 (Escape Velocity)", "SEPHI_L2"),
+                ("L3 (Habitable Zone)", "SEPHI_L3"),
+                ("L4 (Magnetic Field)", "SEPHI_L4")
+            ]:
+                if key in sephi_processed and isinstance(sephi_processed[key], (list, tuple)) and len(sephi_processed[key]) >= 1:
+                    try:
+                        score = float(sephi_processed[key][0])
+                        color = sephi_processed[key][1] if len(sephi_processed[key]) > 1 and isinstance(sephi_processed[key][1], str) else get_color_for_percentage(score)
+                        text = str(score) if len(sephi_processed[key]) <= 2 else str(sephi_processed[key][2])
+                        sephi_scores_for_template[display_key] = {
+                            "score": score,
+                            "color": color,
+                            "text": text
+                        }
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Error processing SEPHI score for {key} in planet {planet_name_for_log}: {e}")
+
         # Calcular Habitability Score
-        is_habitable_candidate = False
-        if any(term in classification_text for term in ["Mini-Terran", "Terran", "Superterran"]):
-            is_habitable_candidate = True
-
-        components_for_average = []
-
-        # Adiciona scores sempre incluídos
-        components_for_average.append(scores_for_template["Habitable_Zone_Position"]["score"])
-        components_for_average.append(scores_for_template["Atmosphere_Potential"]["score"])
-        components_for_average.append(scores_for_template["Liquid_Water_Potential"]["score"])
-        components_for_average.append(scores_for_template["Presence_of_Moons"]["score"])
-        components_for_average.append(scores_for_template["Magnetic_Activity"]["score"])
-        components_for_average.append(scores_for_template["System_Age"]["score"])
-        
-        esi_val = scores_for_template["ESI"]["score"]
-        phi_val = scores_for_template["PHI"]["score"]
-
-        if pd.notna(esi_val): 
-            components_for_average.append(esi_val)
-        if pd.notna(phi_val):
-            components_for_average.append(phi_val)
-
-        # Adiciona scores condicionalmente (Size, Density, Mass)
-        if is_habitable_candidate:
-            components_for_average.append(scores_for_template["Size"]["score"])
-            components_for_average.append(scores_for_template["Density"]["score"])
-            components_for_average.append(scores_for_template["Mass"]["score"])
-        
+        components = [
+            scores_for_template["Temperature"]["score"],
+            scores_for_template["Bio Potential"]["score"],
+            scores_for_template["Magnetic_Activity"]["score"],
+            scores_for_template["System_Age"]["score"],
+            scores_for_template["Presence of Moons"]["score"],
+            scores_for_template["Size"]["score"],
+            scores_for_template["Density"]["score"]
+        ]
         habitability_score_value = 0.0
-        if components_for_average:
-            habitability_score_value = round(sum(components_for_average) / len(components_for_average), 2)
+        if components:
+            habitability_score_value = np.power(np.prod([max(1e-10, c) for c in components]), 1/7)
+            habitability_score_value = np.clip(habitability_score_value, 0, 100)
         else:
-            logger.warning(f"Nenhum componente para calcular a média do Habitability Score para {planet_name_for_log}. Definido como 0.")
+            logger.warning(f"No components available to calculate Habitability Score for {planet_name_for_log}. Set to 0.")
 
-        # Aplica bônus para planetas "Warm" Terran/Superterran
-        is_warm_classified = "Warm" in classification_text 
-        if is_warm_classified and ("Terran" in classification_text or "Superterran" in classification_text):
-            habitability_score_value = min(habitability_score_value + 10, 100)
-        
-        habitability_score_value = np.clip(habitability_score_value, 0, 100)
-
-        # Adiciona/Atualiza o "Habitability" score em scores_for_template
         scores_for_template["Habitability"] = {
             "score": habitability_score_value,
             "color": get_color_for_percentage(habitability_score_value),
             "text": "Overall Habitability Score"
         }
+
+        is_warm_classified = "Warm" in classification_text
+        if is_warm_classified and ("Terran" in classification_text or "Superterran" in classification_text):
+            habitability_score_value = min(habitability_score_value + 10, 100)
         
+        habitability_score_value = np.clip(habitability_score_value, 0, 100)
+        scores_for_template["Habitability"] = {
+            "score": habitability_score_value,
+            "color": get_color_for_percentage(habitability_score_value),
+            "text": "Overall Habitability Score"
+        }
+
         # Calcular informações de viagem
         sy_dist_pc = planet_raw_TAP_data.get("sy_dist")
         distance_ly_str = "N/A"
@@ -835,7 +857,6 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
             "twenty_ls_years": "N/A",
             "near_ls_years": "N/A"
         }
-        
         if pd.notna(sy_dist_pc):
             try:
                 dist_ly_f = float(str(sy_dist_pc)) * 3.26156
@@ -846,38 +867,29 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
                 travel_details["near_ls_years"] = f"{dist_ly_f / 0.99:.1f} years"
             except (ValueError, TypeError):
                 logger.warning(f"Could not calculate travel times for {planet_name_for_log} due to distance conversion error for sy_dist: {sy_dist_pc}")
-        
+
         # Obter descrição da zona habitável
         hz_description = "N/A"
-        if hz_data_tuple_raw and len(hz_data_tuple_raw) > 4 and pd.notna(hz_data_tuple_raw[4]): 
+        if hz_data_tuple_raw and len(hz_data_tuple_raw) > 4 and pd.notna(hz_data_tuple_raw[4]):
             hz_description = str(hz_data_tuple_raw[4])
-        
+
         # Calcular gravidade superficial
         surface_gravity_value_str = "N/A"
         raw_pl_grav = planet_raw_TAP_data.get("pl_grav")
-
         if pd.notna(raw_pl_grav):
             surface_gravity_value_str = format_float_field(raw_pl_grav, ".2f")
         else:
-            # Tentar calcular se pl_grav não estiver disponível
-            raw_pl_masse = planet_raw_TAP_data.get("pl_masse") 
+            raw_pl_masse = planet_raw_TAP_data.get("pl_masse")
             if not pd.notna(raw_pl_masse):
                 raw_pl_masse = planet_raw_TAP_data.get("pl_bmassj")
-
             raw_pl_rade = planet_raw_TAP_data.get("pl_rade")
-
             if pd.notna(raw_pl_masse) and pd.notna(raw_pl_rade):
                 try:
                     mass_earth_str = str(raw_pl_masse)
-                    radius_earth_str = str(raw_pl_rade)
-                    
-                    # Remove o "<" se presente, para poder converter para float
                     if mass_earth_str.startswith("<"):
                         mass_earth_str = mass_earth_str.lstrip("<")
-                    
                     mass_earth = float(mass_earth_str)
-                    radius_earth = float(radius_earth_str)
-                    
+                    radius_earth = float(str(raw_pl_rade))
                     if radius_earth > 0:
                         calculated_gravity = mass_earth / (radius_earth ** 2)
                         surface_gravity_value_str = format_float_field(calculated_gravity, ".2f")
@@ -886,16 +898,86 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
                         logger.warning(f"Cannot calculate surface gravity for {planet_name_for_log}: radius is zero or invalid ({radius_earth}).")
                 except (ValueError, TypeError) as e_calc:
                     logger.warning(f"Could not convert mass ('{raw_pl_masse}') or radius ('{raw_pl_rade}') to float for surface gravity calculation for {planet_name_for_log}. Error: {e_calc}")
-            else:
-                logger.warning(f"Mass ('{raw_pl_masse}') or radius ('{raw_pl_rade}') is not available for surface gravity calculation for {planet_name_for_log}.")
+
+        # Adicionar dados de descoberta
+        discovery_method = find_key_insensitive(planet_raw_TAP_data, "discoverymethod")
+        if discovery_method is None or pd.isna(discovery_method) or str(discovery_method).strip().lower() == "n/a":
+            discovery_method = find_key_insensitive(planet_raw_TAP_data, "disc_method")
+        discovery_method = discovery_method if discovery_method is not None and not pd.isna(discovery_method) and str(discovery_method).strip().lower() != "n/a" else "N/A"
+        method_map = {
+            "tran": "Transit",
+            "rv": "Radial Velocity",
+            "ima": "Imaging",
+            "micro": "Microlensing",
+            "ttv": "Transit Timing Variations",
+            "ast": "Astrometry",
+            "dkin": "Disk Kinematics",
+            "etv": "Eclipse Timing Variations"
+        }
+        discovery_method = method_map.get(discovery_method.lower(), discovery_method)
+        logger.debug(f"Planet {planet_name_for_log}: Discovery Method - NASA (discoverymethod): {planet_raw_TAP_data.get('discoverymethod')}, NASA (disc_method): {planet_raw_TAP_data.get('disc_method')}, Selected: {discovery_method}")
+
+        discovery_year = find_key_insensitive(planet_raw_TAP_data, "disc_year")
+        discovery_year = discovery_year if discovery_year is not None and not pd.isna(discovery_year) and str(discovery_year).strip().lower() != "n/a" else "N/A"
+        logger.debug(f"Planet {planet_name_for_log}: Discovery Year - NASA (disc_year): {planet_raw_TAP_data.get('disc_year')}, Selected: {discovery_year}")
+
+        discovery_facility = find_key_insensitive(planet_raw_TAP_data, "disc_facility")
+        if discovery_facility is None or pd.isna(discovery_facility) or str(discovery_facility).strip().lower() == "n/a":
+            discovery_facility = find_key_insensitive(planet_raw_TAP_data, "disc_instrument")
+        discovery_facility = discovery_facility if discovery_facility is not None and not pd.isna(discovery_facility) and str(discovery_facility).strip().lower() != "n/a" else "N/A"
+        logger.debug(f"Planet {planet_name_for_log}: Discovery Instrument - NASA (disc_instrument): {planet_raw_TAP_data.get('disc_instrument')}, Selected: {discovery_facility}")
+
+        discovery_telescope = find_key_insensitive(planet_raw_TAP_data, "disc_telescope")
+        discovery_telescope = discovery_telescope if discovery_telescope is not None and not pd.isna(discovery_telescope) and str(discovery_telescope).strip().lower() != "n/a" else "N/A"
+        logger.debug(f"Planet {planet_name_for_log}: Discovery Telescope - NASA (disc_telescope): {planet_raw_TAP_data.get('disc_telescope')}, Selected: {discovery_telescope}")
+
+        # Adicionar dados de localização
+        x_pixel_ra = find_key_insensitive(planet_raw_TAP_data, "S_RA")
+        if x_pixel_ra is None or pd.isna(x_pixel_ra) or str(x_pixel_ra).strip().lower() == "n/a":
+            x_pixel_ra = find_key_insensitive(planet_raw_TAP_data, "ra")
+        x_pixel_ra = x_pixel_ra if x_pixel_ra is not None and not pd.isna(x_pixel_ra) and str(x_pixel_ra).strip().lower() != "n/a" else "N/A"
+
+        y_pixel_dec = find_key_insensitive(planet_raw_TAP_data, "S_DEC")
+        if y_pixel_dec is None or pd.isna(y_pixel_dec) or str(y_pixel_dec).strip().lower() == "n/a":
+            y_pixel_dec = find_key_insensitive(planet_raw_TAP_data, "dec")
+        y_pixel_dec = y_pixel_dec if y_pixel_dec is not None and not pd.isna(y_pixel_dec) and str(y_pixel_dec).strip().lower() != "n/a" else "N/A"
+
+        right_ascension = find_key_insensitive(planet_raw_TAP_data, "S_RA_STR")
+        if right_ascension is None or pd.isna(right_ascension) or str(right_ascension).strip().lower() == "n/a":
+            right_ascension = find_key_insensitive(planet_raw_TAP_data, "rastr")
+        right_ascension = right_ascension if right_ascension is not None and not pd.isna(right_ascension) and str(right_ascension).strip().lower() != "n/a" else "N/A"
+
+        declination = find_key_insensitive(planet_raw_TAP_data, "S_DEC_STR")
+        if declination is None or pd.isna(declination) or str(declination).strip().lower() == "n/a":
+            declination = find_key_insensitive(planet_raw_TAP_data, "decstr")
+        declination = declination if declination is not None and not pd.isna(declination) and str(declination).strip().lower() != "n/a" else "N/A"
+
+        # Preparar star_info com constelação
+        star_info = {
+            "temperature_k": format_float_field(planet_raw_TAP_data.get("st_teff"), ".0f"),
+            "radius_solar": format_float_field(planet_raw_TAP_data.get("st_rad")),
+            "mass_solar": format_float_field(planet_raw_TAP_data.get("st_mass")),
+            "luminosity_log_solar": format_float_field(planet_raw_TAP_data.get("st_lum")),
+            "age_gyr": format_float_field(planet_raw_TAP_data.get("st_age")),
+            "metallicity_dex": format_float_field(planet_raw_TAP_data.get("st_metfe")),
+            "constellation": find_key_insensitive(planet_raw_TAP_data, "S_CONSTELLATION") or "N/A"
+        }
+        sy_dist_pc = planet_raw_TAP_data.get("sy_dist")
+        if pd.notna(sy_dist_pc):
+            try:
+                star_info["distance_ly"] = f"{float(str(sy_dist_pc)) * 3.26156:.2f}"
+            except (ValueError, TypeError):
+                star_info["distance_ly"] = "N/A"
+        else:
+            star_info["distance_ly"] = "N/A"
 
         # Preparar dados para o template
         data_for_template = {
             "planet_name": planet_raw_TAP_data.get("pl_name", "N/A"),
             "classification": classification_text,
             "star_type": planet_raw_TAP_data.get("st_spectype", "N/A"),
-            "distance_light_years": distance_ly_str, 
-            "equilibrium_temp_k": format_float_field(planet_raw_TAP_data.get("pl_eqt"),".0f"),
+            "distance_light_years": distance_ly_str,
+            "equilibrium_temp_k": format_float_field(planet_raw_TAP_data.get("pl_eqt"), ".0f"),
             "planet_radius_earth": format_float_field(planet_raw_TAP_data.get("pl_rade")),
             "planet_mass_earth": format_float_field(planet_raw_TAP_data.get("pl_bmassj") if pd.notna(planet_raw_TAP_data.get("pl_bmassj")) else planet_raw_TAP_data.get("pl_masse"), ".2f"),
             "planet_density_gcm3": format_float_field(planet_raw_TAP_data.get("pl_dens")),
@@ -907,15 +989,21 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
             "habitable_zone_description": hz_description,
             "scores": scores_for_template,
             "sephi_scores": sephi_scores_for_template,
-            "star_temp_k": format_float_field(planet_raw_TAP_data.get("st_teff"),".0f"), 
-            "star_radius_solar": format_float_field(planet_raw_TAP_data.get("st_rad")),
-            "star_info": p_data.get("star_info", {}), 
-            "magnetic_activity_score": enriched_details["magnetic_activity_score"],
-            "presence_of_moons_score": enriched_details["presence_of_moons_score"],
-            "atmosphere_potential_desc": enriched_details["atmosphere_potential_desc"],
-            "liquid_water_potential_desc": enriched_details["liquid_water_potential_desc"],
-            "magnetic_activity_desc": enriched_details["magnetic_activity_desc"],
-            "presence_of_moons_desc": enriched_details["presence_of_moons_desc"],
+            "star_info": star_info,
+            "magnetic_activity_score": enriched_details.get("magnetic_activity_score", 0.0),
+            "presence_of_moons_score": enriched_details.get("presence_of_moons_score", 0.0),
+            "atmosphere_potential_desc": enriched_details.get("atmosphere_potential_desc", "N/A"),
+            "liquid_water_potential_desc": enriched_details.get("liquid_water_potential_desc", "N/A"),
+            "magnetic_activity_desc": enriched_details.get("magnetic_activity_desc", "N/A"),
+            "presence_of_moons_desc": enriched_details.get("presence_of_moons_desc", "N/A"),
+            "discovery_method": discovery_method,
+            "discovery_year": discovery_year,
+            "discovery_facility": discovery_facility,
+            "discovery_telescope": discovery_telescope,
+            "x_pixel_ra": format_float_field(x_pixel_ra, ".5f"),
+            "y_pixel_dec": format_float_field(y_pixel_dec, ".5f"),
+            "right_ascension": right_ascension,
+            "declination": declination
         }
         
         processed_data_list.append(data_for_template)

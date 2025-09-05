@@ -92,7 +92,6 @@
                                 <th scope="col" class="planet-column">Planet</th>
                                 <th scope="col">Star Type</th>
                                 <th scope="col">System Age (Value & Score)</th>
-                                <th scope="col">Stellar Activity (Score)</th>
                                 <th scope="col">Eccentricity (Value & Score)</th>
                             </tr>
                         </thead>
@@ -105,12 +104,6 @@
                                     {{ planet_data.star_info.age_gyr | default("N/A") }} Gyr ({{ "%.2f"|format(planet_data.scores.System_Age.score) }}%)</span>
                                     <div class="progress-custom">
                                         <div class="progress-bar-custom" style="width: {{ planet_data.scores.System_Age.score }}%; background-color: {{ planet_data.scores.System_Age.color }};"></div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="score-value">{{ "%.2f"|format(planet_data.scores.Stellar_Activity.score) }}%</span>
-                                    <div class="progress-custom">
-                                        <div class="progress-bar-custom" style="width: {{ planet_data.scores.Stellar_Activity.score }}%; background-color: {{ planet_data.scores.Stellar_Activity.color }};"></div>
                                     </div>
                                 </td>
                                 <td>
@@ -132,8 +125,7 @@
                         <thead>
                             <tr>
                                 <th scope="col" class="planet-column">Planet</th>
-                                <th scope="col">Atmosphere Potential</th>
-                                <th scope="col">Liquid Water Potential</th>
+                                <th scope="col">Bio Potential</th>
                                 <th scope="col">Magnetic Activity</th>
                                 <th scope="col">Presence of Moons</th>
                             </tr>
@@ -143,7 +135,6 @@
                             <tr>
                                 <td class="planet-column">{{ planet_data.planet_name }}</td>
                                 <td>{{ planet_data.atmosphere_potential_desc | default("N/A") }}</td>
-                                <td>{{ planet_data.liquid_water_potential_desc | default("N/A") }}</td>
                                 <td>{{ planet_data.magnetic_activity_desc | default("N/A") }}</td>
                                 <td>{{ planet_data.presence_of_moons_desc | default("N/A") }}</td>
                             </tr>
@@ -259,6 +250,7 @@
                                 <th scope="col" class="planet-column">Planet</th>
                                 <th scope="col">Distance from Star (AU)</th>
                                 <th scope="col">Orbital Period (days)</th>
+                                <th scope="col">Semi-Major Axis (AU)</th>
                                 <th scope="col">Distance from Earth (ly)</th>
                             </tr>
                         </thead>
@@ -268,6 +260,7 @@
                                 <td class="planet-column">{{ planet_data.planet_name }}</td>
                                 <td>{{ planet_data.semi_major_axis_au | default("N/A") }}</td>
                                 <td>{{ planet_data.orbital_period_days | default("N/A") }}</td>
+                                <td>{{ planet_data.semi_major_axis_au | default("N/A") }}</td>
                                 <td>{{ planet_data.distance_light_years | default("N/A") }}</td>
                             </tr>
                             {% endfor %}
@@ -284,7 +277,8 @@
                                 <th scope="col" class="planet-column">Planet</th>
                                 <th scope="col">Radius (R⊕)</th>
                                 <th scope="col">Density (g/cm³)</th>
-                                <th scope="col">Classification</th>
+                                <th scope="col">Mass (M⊕)</th>
+                                <th scope="col">Eccentricity</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -293,7 +287,78 @@
                                 <td class="planet-column">{{ planet_data.planet_name }}</td>
                                 <td>{{ planet_data.planet_radius_earth | default("N/A") }}</td>
                                 <td>{{ planet_data.planet_density_gcm3 | default("N/A") }}</td>
+                                <td>{{ planet_data.planet_mass_earth | default("N/A") }}</td>
+                                <td>{{ planet_data.eccentricity | default("N/A") }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="section">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Surface Gravity (g)</th>
+                                <th scope="col">Equilibrium Temp.</th>
+                                <th scope="col">Classification</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for planet_data in all_planets_data %}
+                            <tr>
+                                <td class="planet-column">{{ planet_data.planet_name }}</td>
+                                <td>{{ planet_data.surface_gravity_g | default("N/A") }}</td>
+                                <td>{{ planet_data.equilibrium_temp_k | default("N/A") }}</td>
                                 <td>{{ planet_data.classification | default("N/A") }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="section">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th>Discovery Method</th> 
+                                <th>Discovery Year</th> 
+                                <th>Discovery Instrument</th> 
+                                <th>Discovery Telescope</th> 
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for planet_data in all_planets_data %}
+                            <tr>
+                                <td class="planet-column">{{ planet_data.planet_name }}</td>
+                                <td>{{ planet_data.discovery_method | default("N/A") }}</td>
+                                <td>{{ planet_data.discovery_year | default("N/A") }}</td>
+                                <td>{{ planet_data.discovery_facility | default("N/A") }}</td>
+                                <td>{{ planet_data.discovery_telescope | default("N/A") }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="section">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th>X Pixel Position (RA)</th>
+                                <th>Y Pixel Position (DEC)</th>
+                                <th>Right Ascension</th>
+                                <th>Declination</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for planet_data in all_planets_data %}
+                            <tr>
+                                <td class="planet-column">{{ planet_data.planet_name }}</td>
+                                <td>{{ planet_data.x_pixel_ra | default("N/A") }}</td>
+                                <td>{{ planet_data.y_pixel_dec | default("N/A") }}</td>
+                                <td>{{ planet_data.right_ascension | default("N/A") }}</td>
+                                <td>{{ planet_data.declination | default("N/A") }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -307,6 +372,7 @@
                         <thead>
                             <tr>
                                 <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Star Type</th>
                                 <th scope="col">Star Temp (K)</th>
                                 <th scope="col">Star Radius (R☉)</th>
                             </tr>
@@ -315,6 +381,7 @@
                             {% for planet_data in all_planets_data %}
                             <tr>
                                 <td class="planet-column">{{ planet_data.planet_name }}</td>
+                                <td>{{ planet_data.star_type | default("N/A") }}</td>
                                 <td>{{ planet_data.star_info.temperature_k | default("N/A") }}</td>
                                 <td>{{ planet_data.star_info.radius_solar | default("N/A") }}</td>
                             </tr>
@@ -342,6 +409,34 @@
                                 <td>{{ planet_data.travel_curiosities.current_tech_years | default("N/A") }}</td>
                                 <td>{{ planet_data.travel_curiosities.twenty_ls_years | default("N/A") }}</td>
                                 <td>{{ planet_data.travel_curiosities.near_ls_years | default("N/A") }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Tabela 5: Habitability Descriptions -->
+                <div class="section">
+                    <h2>Habitability Descriptions</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Habitable Zone Description</th>
+                                <th scope="col">Atmosphere Potential</th>
+                                <th scope="col">Liquid Water Potential</th>
+                                <th scope="col">Magnetic Activity</th>
+                                <th scope="col">Presence of Moons</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for planet_data in all_planets_data %}
+                            <tr>
+                                <td class="planet-column">{{ planet_data.planet_name }}</td>
+                                <td>{{ planet_data.habitable_zone_description | default("N/A") }}</td>
+                                <td>{{ planet_data.atmosphere_potential_desc | default("N/A") }}</td>
+                                <td>{{ planet_data.liquid_water_potential_desc | default("N/A") }}</td>
+                                <td>{{ planet_data.magnetic_activity_desc | default("N/A") }}</td>
+                                <td>{{ planet_data.presence_of_moons_desc | default("N/A") }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
