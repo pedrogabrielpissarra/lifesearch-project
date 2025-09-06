@@ -67,11 +67,10 @@ def convert_numpy_types(data):
     """Converts NumPy data types within a dictionary or pandas Series to standard Python types.
     
     This is primarily used to ensure data is JSON serializable before caching.
-    Handles np.integer, np.floating, np.bool_, pd.Timestamp, and NaN values.
+    Handles np.integer, np.floating, np.bool_, pd.Timestamp, and NaN values, including in nested structures.
     
     Args:
-        data (dict or pd.Series): The data structure containing potentially
-                                  NumPy-specific types.
+        data (dict or pd.Series): The data structure containing potentially NumPy-specific types.
     
     Returns:
         dict: A dictionary with NumPy types converted to their Python equivalents
@@ -80,29 +79,27 @@ def convert_numpy_types(data):
     """
     if isinstance(data, pd.Series):
         data = data.to_dict()
-    elif not isinstance(data, dict):
-        logger.warning(f"convert_numpy_types received non-dict/non-Series data: {type(data)}")
-        return data # Or raise error
+    elif not isinstance(data, (dict, list)):
+        if pd.isna(data):  # Handles np.nan, pd.NaT
+            return None
+        elif isinstance(data, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+            return int(data)
+        elif isinstance(data, (np.floating, np.float64, np.float32, np.float16)):
+            return float(data)
+        elif isinstance(data, np.bool_):
+            return bool(data)
+        elif isinstance(data, pd.Timestamp):
+            return data.isoformat()
+        return data
 
-    cleaned_data = {}
-    for key, value in data.items():
-        if pd.isna(value):  # Handles np.nan, pd.NaT, None
-            cleaned_data[key] = None
-        elif isinstance(value, (np.integer, np.int64, np.int32, np.int16, np.int8)):
-            cleaned_data[key] = int(value)
-        elif isinstance(value, (np.floating, np.float64, np.float32, np.float16)):
-            cleaned_data[key] = float(value)
-        elif isinstance(value, np.bool_):
-            cleaned_data[key] = bool(value)
-        elif isinstance(value, pd.Timestamp):
-            cleaned_data[key] = value.isoformat()
-        elif isinstance(value, (list, dict)):
-             # Potentially recurse if nested structures can contain numpy types
-             # For now, assume shallow structures or that internal lists/dicts are clean
-            cleaned_data[key] = value 
-        else:
-            cleaned_data[key] = value  # Assume it's already JSON serializable
-    return cleaned_data
+    if isinstance(data, dict):
+        cleaned_data = {}
+        for key, value in data.items():
+            cleaned_data[key] = convert_numpy_types(value)  # Recursão
+        return cleaned_data
+    elif isinstance(data, list):
+        return [convert_numpy_types(item) for item in data]  # Recursão para listas
+    return data
 
 def write_to_cache(planet_name_slug, data_series):
     """Writes planet data to a JSON cache file.
