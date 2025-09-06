@@ -46,7 +46,6 @@
                                 <th scope="col">Earth Similarity Index (ESI)</th>
                                 <th scope="col">Planetary Habitability Index (PHI)</th>
                                 <th scope="col">Standard Primary Habitability (SPH)</th>
-                                <th scope="col">Habitability Score</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -71,12 +70,6 @@
                                         <div class="progress-bar-custom" style="width: {{ planet_data.scores.SPH.score }}%; background-color: {{ planet_data.scores.SPH.color }};"></div>
                                     </div>
                                 </td>                                
-                                <td>
-                                    <span class="score-value">{{ "%.2f"|format(planet_data.scores.Habitability.score) }}%</span>
-                                    <div class="progress-custom">
-                                        <div class="progress-bar-custom" style="width: {{ planet_data.scores.Habitability.score }}%; background-color: {{ planet_data.scores.Habitability.color }};"></div>
-                                    </div>
-                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
