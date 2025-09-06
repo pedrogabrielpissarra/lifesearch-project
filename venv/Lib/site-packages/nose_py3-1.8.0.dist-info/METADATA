@@ -1,0 +1,53 @@
+Metadata-Version: 2.4
+Name: nose-py3
+Version: 1.8.0
+Summary: nose extends unittest to make testing easier - python3 version
+Home-page: https://github.com/atsb/nose-py3
+Author: Adam Bilbrough
+Author-email: 
+Maintainer: Adam Bilbrough
+License: GNU LGPL
+Keywords: test unittest doctest automatic discovery
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Software Development :: Testing
+License-File: LICENSE
+License-File: AUTHORS
+Provides-Extra: test
+Requires-Dist: coverage; extra == "test"
+Requires-Dist: sphinx; extra == "test"
+Dynamic: author
+Dynamic: classifier
+Dynamic: description
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license
+Dynamic: license-file
+Dynamic: maintainer
+Dynamic: provides-extra
+Dynamic: summary
+
+nose extends the test loading and running features of unittest, making
+        it easier to write, find and run tests.
+
+        By default, nose will run tests in files or directories under the current
+        working directory whose names include "test" or "Test" at a word boundary
+        (like "test_this" or "functional_test" or "TestClass" but not
+        "libtest"). Test output is similar to that of unittest, but also includes
+        captured stdout output from failing tests, for easy print-style debugging.
+
+        These features, and many more, are customizable through the use of
+        plugins. Plugins included with nose provide support for doctest, code
+        coverage and profiling, flexible attribute-based test selection,
+        output capture and more. More information about writing plugins may be
+        found on in the nose API documentation, here:
+        http://readthedocs.org/docs/nose/
+
+        If you have recently reported a bug marked as fixed, or have a craving for
+        the very latest, you may want the development version instead:
+        https://github.com/atsb/nose-py3
+        
