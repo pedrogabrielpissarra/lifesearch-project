@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Summary Report</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; }
+        h1 { color: #333; }
+        h2 { color: #555; margin-top: 20px; }
+        .section { margin-bottom: 20px; }
+        table { margin-bottom: 20px; }
+        th, td { text-align: left; vertical-align: middle; }
+        th.planet-column, td.planet-column { white-space: nowrap; min-width: 120px; }
+        .score-value { display: inline-block; width: 100px; text-align: right; margin-right: 5px; white-space: nowrap; font-size: 0.9em;}
+        .progress-custom { width: 150px; height: 18px; display: inline-block; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-left: 5px;}
+        .progress-bar-custom { height: 100%; transition: width 0.5s ease-in-out; font-size: 0.8em; color: white; text-align: center; line-height: 18px;}
+        footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666; text-align: center; }
+        footer a { color: #0066cc; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Summary Report</h1>
+
+        <ul class="nav nav-tabs" id="summaryTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="scores-summary-tab" data-bs-toggle="tab" data-bs-target="#scores-summary" type="button" role="tab" aria-controls="scores-summary" aria-selected="true">Scores</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="details-summary-tab" data-bs-toggle="tab" data-bs-target="#details-summary" type="button" role="tab" aria-controls="details-summary" aria-selected="false">Other Details</button>
+            </li>
+        </ul>
+        <div class="tab-content" id="summaryTabsContent">
+            <div class="tab-pane fade show active" id="scores-summary" role="tabpanel" aria-labelledby="scores-summary-tab">
+                <!-- Tabela 1: Scores Principais -->
+                <div class="section">
+                    <h2>Key Scores</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Earth Similarity Index (ESI)</th>
+                                <th scope="col">Planetary Habitability Index (PHI)</th>
+                                <th scope="col">Standard Primary Habitability (SPH)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>
+                                    <span class="score-value">95.71%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 95.71%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="score-value">40.97%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 40.97%; background-color: #FFC107;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="score-value">77.02%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 77.02%; background-color: #8BC34A;"></div>
+                                    </div>
+                                </td>                                
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tabela 2: Star Type, System Age, Stellar Activity, Eccentricity -->
+                <div class="section">
+                    <h2>Stellar and Orbital Factors</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Star Type</th>
+                                <th scope="col">System Age (Value & Score)</th>
+                                <th scope="col">Eccentricity (Value & Score)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>G5 V</td>
+                                <td>
+                                    7.00 Gyr (90.00%)</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 90.0%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    0.72 (10.00%)
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 10.0%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tabela 3: Atmosphere Potential, Liquid Water Potential, Magnetic Activity, Presence of Moons -->
+                <div class="section">
+                    <h2>Atmosphere and Moons</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Bio Potential</th>
+                                <th scope="col">Magnetic Activity</th>
+                                <th scope="col">Presence of Moons</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>Likely</td>
+                                <td>High</td>
+                                <td>Possible</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tabela 4: Habitable Zone Position, Size, Density, Star Metallicity -->
+                <div class="section">
+                    <h2>Physical Properties and Habitable Zone</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Habitable Zone Position</th>
+                                <th scope="col">Size (Value & Score)</th>
+                                <th scope="col">Density (Value & Score)</th>
+                                <th scope="col">Star Metallicity (Value & Score)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>627.3</td>
+                                <td>
+                                    2.10 R⊕ (90.00%)
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 90.0%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    5.20 g/cm³ (50.00%)
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 50.0%; background-color: #FFC107;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    N/A dex (90.00%)
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 90.0%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tabela 5: SEPHI Scores -->
+                <div class="section">
+                    <h2>SEPHI Scores</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">SEPHI</th>
+                                <th scope="col">SEPHI L1 (Telluric)</th>
+                                <th scope="col">SEPHI L2 (Atmosphere)</th>
+                                <th scope="col">SEPHI L3 (Water)</th>
+                                <th scope="col">SEPHI L4 (Magnetic Field)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>
+                                    <span class="score-value">91.79%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 91.79%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="score-value">77.70%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 77.7%; background-color: #8BC34A;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="score-value">91.40%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 91.4%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="score-value">100.00%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 100.0%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="score-value">100.00%</span>
+                                    <div class="progress-custom">
+                                        <div class="progress-bar-custom" style="width: 100.0%; background-color: #4CAF50;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div> <!-- End of scores-summary tab-pane -->
+
+            <div class="tab-pane fade" id="details-summary" role="tabpanel" aria-labelledby="details-summary-tab">
+                <!-- Tabela 1: Orbit Information -->
+                <div class="section">
+                    <h2>Orbit Information</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Distance from Star (AU)</th>
+                                <th scope="col">Orbital Period (days)</th>
+                                <th scope="col">Semi-Major Axis (AU)</th>
+                                <th scope="col">Distance from Earth (ly)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>0.81</td>
+                                <td>289.86</td>
+                                <td>0.81</td>
+                                <td>634.83</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tabela 2: Planet Information -->
+                <div class="section">
+                    <h2>Planet Information</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Radius (R⊕)</th>
+                                <th scope="col">Density (g/cm³)</th>
+                                <th scope="col">Mass (M⊕)</th>
+                                <th scope="col">Eccentricity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>2.10</td>
+                                <td>5.20</td>
+                                <td>0.03</td>
+                                <td>0.72</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+                <div class="section">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Surface Gravity (g)</th>
+                                <th scope="col">Equilibrium Temp.</th>
+                                <th scope="col">Classification</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>2.06</td>
+                                <td>279</td>
+                                <td>Superterran | Mesoplanet (Temperate 2 - Optimal for Earth Life)</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+                <div class="section">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th>Discovery Method</th> 
+                                <th>Discovery Year</th> 
+                                <th>Discovery Instrument</th> 
+                                <th>Discovery Telescope</th> 
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>Transit</td>
+                                <td>2011</td>
+                                <td>Kepler CCD Array</td>
+                                <td>0.95 m Kepler Telescope</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+                <div class="section">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th>X Pixel Position (RA)</th>
+                                <th>Y Pixel Position (DEC)</th>
+                                <th>Right Ascension</th>
+                                <th>Declination</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>289.21721</td>
+                                <td>47.88414</td>
+                                <td>19h16m52.13s</td>
+                                <td>+47d53m02.91s</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tabela 3: Star Information -->
+                <div class="section">
+                    <h2>Star Information</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Star Type</th>
+                                <th scope="col">Star Temp (K)</th>
+                                <th scope="col">Star Radius (R☉)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>G5 V</td>
+                                <td>5596</td>
+                                <td>0.87</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tabela 4: Travel Curiosities -->
+                <div class="section">
+                    <h2>Travel Curiosities</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Current Tech</th>
+                                <th scope="col">20% Speed of Light</th>
+                                <th scope="col">Near Light Speed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>1119.5 thousand years</td>
+                                <td>3174.2 years</td>
+                                <td>641.2 years</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Tabela 5: Habitability Descriptions -->
+                <div class="section">
+                    <h2>Habitability Descriptions</h2>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="planet-column">Planet</th>
+                                <th scope="col">Habitable Zone Description</th>
+                                <th scope="col">Atmosphere Potential</th>
+                                <th scope="col">Liquid Water Potential</th>
+                                <th scope="col">Magnetic Activity</th>
+                                <th scope="col">Presence of Moons</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr>
+                                <td class="planet-column">Kepler-22 b</td>
+                                <td>627.3</td>
+                                <td>Likely</td>
+                                <td>Likely</td>
+                                <td>High</td>
+                                <td>Possible</td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div> <!-- End of details-summary tab-pane -->
+        </div> <!-- End of tab-content -->
+    </div> <!-- End of container -->
+
+    <footer>
+            <p>Data obtained from:</p>
+            <p>
+                <a href="https://exoplanetarchive.ipac.caltech.edu/index.html" target="_blank">NASA Exoplanet Archive</a> |
+                <a href="https://phl.upr.edu/hwc/data" target="_blank">PHL Habitable Worlds Catalog</a> |
+                <a href="http://www.hzgallery.org/table.html" target="_blank">HZGallery</a> |
+                <a href="https://academic.oup.com/mnras/article/471/4/4628/4096396" target="_blank">MNRAS HZ Exoplanet Catalog</a>  |
+                <a href="http://exoplanetes.esep.pro/index.php/home-fr/table-des-exoplanetes-fr" target="_blank">ESEP Exoplanet Table</a>
+            </p>
+            <p> 2025-09-06 21:04:37 by LifeSearch. &copy;   All rights reserved.</p>
+        </footer>
+</body>
+</html>

@@ -5,7 +5,7 @@
     <h2>Search Exoplanets</h2>
     <p class="lead">Enter the names of the exoplanets you want to analyze. Type a name and press Enter or comma to add it as a tag. Start typing for suggestions. You can also check <a href="https://science.nasa.gov/exoplanets/exoplanet-catalog/" target="_blank">NASA Exoplanet Catalog</a></p>
         
-    <form id="planet-search-form" method="POST" action="{{ url_for('index') }}" novalidate>
+    <form id="planet-search-form" method="POST" action="{{ url_for('routes.index') }}" novalidate>
         {{ form.hidden_tag() }}
         <div class="mb-3">
             {{ form.planet_names.label(class="form-label") }}
@@ -43,7 +43,7 @@
         </div>
         
         <!-- Formulário oculto para enviar os dados -->
-        <form id="parameters-form" method="POST" action="{{ url_for('index') }}">
+        <form id="parameters-form" method="POST" action="{{ url_for('routes.index') }}">
             {{ form.hidden_tag() }}
         <input type="hidden" id="planet-names-hidden" name="planet_names">
         <input type="hidden" id="parameter-overrides-hidden" name="parameter_overrides">
