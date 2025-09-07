@@ -1,6 +1,7 @@
 import os
 from flask import Flask
 
+
 def create_app():
     # Ajuste: template_folder deve apontar para o subdiretório 'templates' dentro de 'app'
     app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -25,7 +26,7 @@ def create_app():
         os.makedirs(app.config['SESSION_FILE_DIR'])
 
     # Import and register routes
-    with app.app_context():
-        from . import routes # routes.py usará current_app para registrar as rotas
+    from .routes import routes_bp
+    app.register_blueprint(routes_bp)
 
     return app

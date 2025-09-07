@@ -17,7 +17,29 @@ import requests
 import math
 import json
 
+
+from lifesearch.data import (
+    fetch_exoplanet_data_api,
+    load_hwc_catalog,
+    load_hzgallery_catalog,
+    merge_data_sources,
+    normalize_name,
+)
+from lifesearch.reports import (
+    plot_habitable_zone,
+    plot_scores_comparison,
+    generate_planet_report_html,
+    generate_summary_report_html,
+    generate_combined_report_html,
+)
+from lifesearch.lifesearch_main import process_planet_data
+from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm
+
 logger = logging.getLogger(__name__)
+
+# 🔹 CRIA O BLUEPRINT
+routes_bp = Blueprint("routes", __name__)
+
 
 def replace_nan_with_none(obj):
     """Recursively replaces float NaN values with None in a nested data structure.
@@ -64,7 +86,7 @@ DEFAULT_PHI_WEIGHTS = {
 
 from flask import current_app as app
 
-@app.context_processor
+@routes_bp.app_context_processor
 def inject_global_vars():
     """Injects global variables into the template context.
     
@@ -78,8 +100,8 @@ def inject_global_vars():
         "datetime": datetime # Make datetime object available for templates if needed
     }
 
-@app.route("/", methods=["GET", "POST"])
-@app.route("/index", methods=["GET", "POST"])
+@routes_bp.route("/", methods=["GET", "POST"])
+@routes_bp.route("/index", methods=["GET", "POST"], endpoint="index")
 def index():
     """Handles the main page for planet search.
     
@@ -125,12 +147,12 @@ def index():
         logger.info(f"Index: Updated session with planet_names_list={planet_names_list}, parameter_overrides_input={parameter_overrides_input}")
         logger.info(f"Index: Session after update: {dict(session)}")
         
-        return redirect(url_for("results"))
+        return redirect(url_for("routes.results"))
 
     logger.info(f"Index: Rendering index.html with session: {dict(session)}")
     return render_template("index.html", form=form, title="LifeSearch Web")
 
-@app.route("/configure", methods=["GET", "POST"])
+@routes_bp.route("/configure", methods=["GET", "POST"])
 def configure():
     """Handles the configuration page for habitability and PHI weights.
     
@@ -332,7 +354,7 @@ def configure():
                            initial_hab_weights_json=json.dumps(initial_hab_weights),
                            initial_phi_weights_json=json.dumps(initial_phi_weights))
 
-@app.route("/api/planets/reference-values", methods=["GET"])
+@routes_bp.route("/api/planets/reference-values", methods=["GET"])
 def get_planet_reference_values_hyphen():
     """
     API endpoint (hyphenated path) to provide reference ESI, PHI, and classification
@@ -348,7 +370,7 @@ def get_planet_reference_values_hyphen():
     return get_planet_reference_values()
 
 
-@app.route("/api/planets/reference_values", methods=["GET", "POST"])
+@routes_bp.route("/api/planets/reference_values", methods=["GET", "POST"])
 def get_planet_reference_values():
     """
     API endpoint to calculate and return reference ESI, PHI, and classification
@@ -453,7 +475,7 @@ def get_planet_reference_values():
     
     return jsonify({"planets": reference_planets})
 
-@app.route("/results")
+@routes_bp.route("/results", endpoint="results")
 def results():
     """Generates and displays the analysis results for selected planets.
     
@@ -619,7 +641,7 @@ def results():
                 report_filename = os.path.basename(report_path)
                 report_links.append({
                     "name": planet_data_dict.get("pl_name", normalized_planet_name),
-                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=report_filename),
+                    "url": url_for("routes.serve_generated_file", results_dir=session_results_dir_name, filename=report_filename),
                     "type": "individual"
                 })
             else:
@@ -643,7 +665,7 @@ def results():
                 summary_filename = os.path.basename(summary_report_path)
                 report_links.append({
                     "name": "Summary Report",
-                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=summary_filename),
+                    "url": url_for("routes.serve_generated_file", results_dir=session_results_dir_name, filename=summary_filename),
                     "type": "summary"
                 })
                 logger.info(f"Summary report generated: {summary_filename}")
@@ -664,7 +686,7 @@ def results():
                 combined_filename = os.path.basename(combined_report_path)
                 report_links.append({
                     "name": "Combined Report",
-                    "url": url_for("serve_generated_file", results_dir=session_results_dir_name, filename=combined_filename),
+                    "url": url_for("routes.serve_generated_file", results_dir=session_results_dir_name, filename=combined_filename),
                     "type": "combined"
                 })
                 logger.info(f"Combined report generated: {combined_filename}")
@@ -686,7 +708,7 @@ def results():
         session_dir=session_results_dir_name
     )
 
-@app.route("/results_archive/<path:results_dir>/<path:filename>")
+@routes_bp.route("/results_archive/<path:results_dir>/<path:filename>")
 def serve_generated_file(results_dir, filename):
     """Serves generated report files and charts from the results archive.
     
@@ -712,7 +734,7 @@ def serve_generated_file(results_dir, filename):
         
     return send_from_directory(directory, filename)
 
-@app.route('/api/planets/autocomplete')
+@routes_bp.route('/api/planets/autocomplete')
 def planets_autocomplete():
     """API endpoint for planet name autocompletion.
     
@@ -758,7 +780,7 @@ def planets_autocomplete():
         current_app.logger.error(f"Error processing HWC for autocomplete: {e}", exc_info=True)
         return jsonify({"error": "Could not fetch suggestions from local HWC catalog"}), 500
     
-@app.route('/api/planets/parameters', methods=['POST'])
+@routes_bp.route('/api/planets/parameters', methods=['POST'])
 def get_planet_parameters():
     """API endpoint to fetch raw parameters for a list of planet names.
     
@@ -812,7 +834,7 @@ def get_planet_parameters():
     
     return jsonify({'planets': planets_data_cleaned}) # Use a lista limpa
 
-@app.route('/api/clear-session', methods=['POST'])
+@routes_bp.route('/api/clear-session', methods=['POST'])
 def clear_session():
     """API endpoint to clear specific items from the user's session.
     
@@ -829,7 +851,7 @@ def clear_session():
     logger.info(f"Clear-session: After clear, session content: {dict(session)}")
     return jsonify({"status": "partial session cleared"})
 
-@app.route('/api/save-planet-weights', methods=['POST'])
+@routes_bp.route('/api/save-planet-weights', methods=['POST'])
 def save_planet_weights():
     """API endpoint to save planet-specific or global weight configurations to the session.
     
@@ -876,7 +898,7 @@ def save_planet_weights():
     
     return jsonify({'status': 'success'})
 
-@app.route('/api/debug-session', methods=['GET'])
+@routes_bp.route('/api/debug-session', methods=['GET'])
 def debug_session():
     """API endpoint for debugging session content.
     
@@ -894,16 +916,16 @@ def debug_session():
         'planet_weights': session.get('planet_weights')
     })
 
-@app.errorhandler(404)
+@routes_bp.app_errorhandler(404)
 def page_not_found(e):
     return render_template("error.html", error_code=404, error_message="Page not found."), 404
 
-@app.errorhandler(500)
+@routes_bp.app_errorhandler(500)
 def internal_server_error(e):
     logger.error(f"Internal server error: {e}", exc_info=True)
     return render_template("error.html", error_code=500, error_message="An internal server error occurred."), 500
 
-@app.route('/api/save-planets-to-session', methods=['POST'])
+@routes_bp.route('/api/save-planets-to-session', methods=['POST'])
 def save_planets_to_session():
     """API endpoint to save a list of planet names to the session.
     
