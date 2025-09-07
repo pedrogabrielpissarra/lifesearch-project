@@ -1,5 +1,6 @@
 import os
 from flask import Flask
+from lifesearch.data import ensure_cache_ready
 
 
 def create_app():
@@ -24,6 +25,8 @@ def create_app():
     # Ensure session directory exists  <-- ADIÇÃO IMPORTANTE AQUI
     if not os.path.exists(app.config['SESSION_FILE_DIR']):
         os.makedirs(app.config['SESSION_FILE_DIR'])
+
+    ensure_cache_ready()
 
     # Import and register routes
     from .routes import routes_bp
