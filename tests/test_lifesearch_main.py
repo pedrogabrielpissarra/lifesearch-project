@@ -59,3 +59,31 @@ class TestHelpers:
         assert "Unknown" in classification
 
 
+
+class TestCalculationsESI:
+    # ---------------------------
+    # ESI
+    # ---------------------------
+    def test_esi_earth_like(self):
+        """ESI for Earth-like values should be close to 100"""
+        planet_data = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
+        esi, _ = lm.calculate_esi_score(planet_data, {"Size": 1, "Density": 1, "Habitable Zone": 1})
+        assert 90 <= esi <= 100
+
+    def test_esi_mars_like(self):
+        """ESI for Mars-like values should be within the valid range 0–100"""
+        planet_data = {"pl_rade": 0.53, "pl_dens": 3.93, "pl_eqt": 210.0}
+        esi, _ = lm.calculate_esi_score(planet_data, {"Size": 1, "Density": 1, "Habitable Zone": 1})
+        assert 0 <= esi <= 100
+
+    def test_esi_jupiter_like(self):
+        """ESI for Jupiter-like values should be within the valid range 0–100"""
+        planet_data = {"pl_rade": 11.2, "pl_dens": 1.33, "pl_eqt": 110.0}
+        esi, _ = lm.calculate_esi_score(planet_data, {"Size": 1, "Density": 1, "Habitable Zone": 1})
+        assert 0 <= esi <= 100
+
+    def test_esi_invalid_values(self):
+        """ESI should return 0 when input values are invalid or missing"""
+        planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
+        esi, _ = lm.calculate_esi_score(planet_data, {"Size": 1, "Density": 1, "Habitable Zone": 1})
+        assert esi == 0.0
