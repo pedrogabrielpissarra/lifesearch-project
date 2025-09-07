@@ -227,7 +227,96 @@ class TestCalculationsSEPHI:
         sephi = result[0] if isinstance(result, tuple) else result
         assert (sephi is None) or (0 <= sephi <= 100)
 
+class TestProcessPlanetData:
+    # ---------------------------
+    # PROCESS PLANET DATA
+    # ---------------------------     
+    def test_process_earth_like(self):
+        """process_planet_data should return report-style scores for Earth-like planet"""
+        planet_data = {
+            "pl_name": "Earth",
+            "pl_rade": 1.0,
+            "pl_masse": 1.0,
+            "pl_eqt": 255.0,
+            "pl_orbsmax": 1.0,
+            "pl_orbper": 365.25,
+            "pl_dens": 5.51,
+            "st_teff": 5778,
+            "st_mass": 1.0,
+            "st_rad": 1.0,
+            "st_age": 4.5,
+            "pl_orbeccen": 0.016,
+        }
+        combined_data = {"Earth": planet_data}
+        weights_config = {
+            "ESI": {"Size": 1.0, "Density": 1.0, "Habitable Zone": 1.0},
+            "PHI": {"Solid Surface": 0.25, "Stable Energy": 0.25,
+                    "Life Compounds": 0.25, "Stable Orbit": 0.25},
+            "SPH": {"Star": 1.0}
+        }
 
+        result = lm.process_planet_data(planet_data, combined_data, weights_config)
+        assert isinstance(result, dict)
 
+        # Deve conter os dicionários de scores
+        assert "scores_for_report" in result
+        assert "sephi_scores_for_report" in result
 
+        scores = result["scores_for_report"]
+        sephi_scores = result["sephi_scores_for_report"]
 
+        # Validar que ESI, PHI, SPH existem
+        for key in ["ESI", "PHI", "SPH"]:
+            assert key in scores
+            val, color = scores[key]
+            assert (val == "N/A") or (0 <= val <= 100)
+            assert isinstance(color, str) and color.startswith("#")
+
+        # Validar que SEPHI existe
+        assert "SEPHI" in sephi_scores
+        sephi_val, sephi_color = sephi_scores["SEPHI"]
+        assert (sephi_val == "N/A") or (0 <= sephi_val <= 100)
+        assert isinstance(sephi_color, str) and sephi_color.startswith("#")
+
+    def test_process_invalid_data(self):
+        """process_planet_data should handle missing values without crashing"""
+        planet_data = {"pl_name": "Unknown"}
+        combined_data = {"Unknown": planet_data}
+        weights_config = {
+            "ESI": {"Size": 1.0, "Density": 1.0, "Habitable Zone": 1.0},
+            "PHI": {"Solid Surface": 0.25, "Stable Energy": 0.25,
+                    "Life Compounds": 0.25, "Stable Orbit": 0.25},
+            "SPH": {"Star": 1.0}
+        }
+
+        result = lm.process_planet_data(planet_data, combined_data, weights_config)
+        assert isinstance(result, dict)
+        # Mesmo sem dados válidos, deve devolver um dicionário não vazio
+        assert len(result) > 0
+
+    def test_process_compare_earth_and_jupiter(self):
+        """Earth should generally have better scores than Jupiter"""
+        earth_data = {"pl_name": "Earth", "pl_rade": 1.0, "pl_masse": 1.0, "pl_eqt": 255.0,
+                      "pl_orbsmax": 1.0, "pl_orbper": 365.25, "pl_dens": 5.51,
+                      "st_teff": 5778, "st_mass": 1.0, "st_rad": 1.0, "st_age": 4.5, "pl_orbeccen": 0.016}
+        jupiter_data = {"pl_name": "Jupiter", "pl_rade": 11.2, "pl_masse": 317.0, "pl_eqt": 110.0,
+                        "pl_orbsmax": 5.2, "pl_orbper": 4332.0, "pl_dens": 1.33,
+                        "st_teff": 5778, "st_mass": 1.0, "st_rad": 1.0, "st_age": 4.5, "pl_orbeccen": 0.048}
+        combined_data = {"Earth": earth_data, "Jupiter": jupiter_data}
+        weights_config = {
+            "ESI": {"Size": 1.0, "Density": 1.0, "Habitable Zone": 1.0},
+            "PHI": {"Solid Surface": 0.25, "Stable Energy": 0.25,
+                    "Life Compounds": 0.25, "Stable Orbit": 0.25},
+            "SPH": {"Star": 1.0}
+        }
+
+        earth_result = lm.process_planet_data(earth_data, combined_data, weights_config)
+        jupiter_result = lm.process_planet_data(jupiter_data, combined_data, weights_config)
+
+        assert isinstance(earth_result, dict)
+        assert isinstance(jupiter_result, dict)
+
+        # Pelo menos um dos índices de Earth deve ser >= Jupiter
+        for key in ["esi_score", "phi_score", "sephi_score"]:
+            if key in earth_result and key in jupiter_result:
+                assert (earth_result[key] or 0) >= (jupiter_result[key] or 0)
