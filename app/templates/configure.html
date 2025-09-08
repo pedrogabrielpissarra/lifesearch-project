@@ -281,35 +281,49 @@ document.addEventListener('DOMContentLoaded', function() {
                 const planetNormalizedName = this.dataset.planetNormalizedName;
                 const planetDisplayName = this.dataset.planetDisplayName;
                 const useIndividual = useIndividualWeightsCheckbox.checked;
-                const collectedWeights = {};
+                let collectedWeights = {};
 
                 const card = document.querySelector(`.planet-weight-card[data-planet-normalized-name="${planetNormalizedName}"]`);
                 if (!card) return;
 
                 let currentPlanetHabWeights = {};
                 let currentPlanetPhiWeights = {};
+                let hasChanges = false;
+
+                const initialHab = INITIAL_HAB_WEIGHTS[planetNormalizedName] || {};
+                const initialPhi = INITIAL_PHI_WEIGHTS[planetNormalizedName] || {};
 
                 habFactorDefinitions.forEach(factorDef => {
                     const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="hab"][data-weight-key="${factorDef.key}"]`);
                     if (inputElement) {
-                        currentPlanetHabWeights[factorDef.label] = parseFloat(inputElement.value);
+                        const val = parseFloat(inputElement.value);
+                        currentPlanetHabWeights[factorDef.label] = val;
+                        if (Math.abs(val - (initialHab[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+                            hasChanges = true;
+                        }
                     }
                 });
 
                 phiFactorDefinitions.forEach(factorDef => {
                     const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
                     if (inputElement) {
-                        currentPlanetPhiWeights[factorDef.label] = parseFloat(inputElement.value);
+                        const val = parseFloat(inputElement.value);
+                        currentPlanetPhiWeights[factorDef.label] = val;
+                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+                            hasChanges = true;
+                        }
                     }
                 });
 
-                collectedWeights[planetNormalizedName] = {
-                    habitability: currentPlanetHabWeights,
-                    phi: currentPlanetPhiWeights
-                };
+                if (hasChanges) {
+                    collectedWeights[planetNormalizedName] = {
+                        habitability: currentPlanetHabWeights,
+                        phi: currentPlanetPhiWeights
+                    };
+                }
 
                 console.log(`Saving weights for ${planetDisplayName}:`, {
-                    use_individual_weights: useIndividual,
+                    use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
                     planet_weights: collectedWeights
                 });
 
@@ -318,7 +332,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            use_individual_weights: useIndividual,
+                            use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
                             planet_weights: collectedWeights
                         })
                     });
@@ -326,7 +340,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     const result = await response.json();
                     if (result.status === 'success') {
                         alert(`Weights for ${planetDisplayName} saved successfully!`);
-                        CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] = collectedWeights[planetNormalizedName];
+                        if (result.saved_weights && result.saved_weights[planetNormalizedName]) {
+                            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] = result.saved_weights[planetNormalizedName];
+                        } else {
+                            delete CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName];
+                        }
                         await loadReferenceValues();
                     } else {
                         alert(`Error saving weights for ${planetDisplayName}.`);
@@ -401,29 +419,43 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 let currentPlanetHabWeights = {};
                 let currentPlanetPhiWeights = {};
+                let hasChanges = false;
+
+                const initialHab = INITIAL_HAB_WEIGHTS[planetNormalizedName] || {};
+                const initialPhi = INITIAL_PHI_WEIGHTS[planetNormalizedName] || {};
 
                 habFactorDefinitions.forEach(factorDef => {
                     const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="hab"][data-weight-key="${factorDef.key}"]`);
                     if (inputElement) {
-                        currentPlanetHabWeights[factorDef.label] = parseFloat(inputElement.value);
+                        const val = parseFloat(inputElement.value);
+                        currentPlanetHabWeights[factorDef.label] = val;
+                        if (Math.abs(val - (initialHab[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+                            hasChanges = true;
+                        }
                     }
                 });
 
                 phiFactorDefinitions.forEach(factorDef => {
                     const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
                     if (inputElement) {
-                        currentPlanetPhiWeights[factorDef.label] = parseFloat(inputElement.value);
+                        const val = parseFloat(inputElement.value);
+                        currentPlanetPhiWeights[factorDef.label] = val;
+                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+                            hasChanges = true;
+                        }
                     }
                 });
 
-                collectedWeights[planetNormalizedName] = {
-                    habitability: currentPlanetHabWeights,
-                    phi: currentPlanetPhiWeights
-                };
+                if (hasChanges) {
+                    collectedWeights[planetNormalizedName] = {
+                        habitability: currentPlanetHabWeights,
+                        phi: currentPlanetPhiWeights
+                    };
+                }
             });
 
             console.log('Sending weights to API:', {
-                use_individual_weights: useIndividual,
+                use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
                 planet_weights: collectedWeights
             });
 
@@ -432,7 +464,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        use_individual_weights: useIndividual,
+                        use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
                         planet_weights: collectedWeights
                     })
                 });
@@ -440,7 +472,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const result = await response.json();
                 if (result.status === 'success') {
                     alert('Individual planet weights saved successfully!');
-                    Object.assign(CURRENT_PLANET_SPECIFIC_WEIGHTS, collectedWeights);
+                    CURRENT_PLANET_SPECIFIC_WEIGHTS = result.saved_weights || {};
                     await loadReferenceValues();
                 } else {
                     alert('Error saving weights.');
@@ -456,7 +488,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const useIndividual = useIndividualWeightsCheckbox.checked;
             const payload = {
-                use_individual_weights: useIndividual,
+                use_individual_weights: useIndividual && Object.keys(CURRENT_PLANET_SPECIFIC_WEIGHTS).length > 0,
                 planet_weights: useIndividual ? CURRENT_PLANET_SPECIFIC_WEIGHTS : {}
             };
             console.log('Sending reference values request:', payload);
