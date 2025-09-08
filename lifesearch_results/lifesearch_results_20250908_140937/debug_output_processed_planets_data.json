@@ -1,0 +1,350 @@
+[
+  {
+    "planet_name": "TRAPPIST-1 c",
+    "classification": "Terran | Thermoplanet (Warm)",
+    "star_type": null,
+    "distance_light_years": "40.54",
+    "equilibrium_temp_k": "340",
+    "planet_radius_earth": "1.10",
+    "planet_mass_earth": "0.00",
+    "planet_density_gcm3": "5.46",
+    "surface_gravity_g": "1.08",
+    "orbital_period_days": "2.42",
+    "semi_major_axis_au": "0.02",
+    "eccentricity": "0.01",
+    "travel_curiosities": {
+      "distance_ly": "40.54",
+      "current_tech_years": "71.5 thousand years",
+      "twenty_ls_years": "202.7 years",
+      "near_ls_years": "41.0 years"
+    },
+    "habitable_zone_description": "404.1",
+    "scores": {
+      "ESI": {
+        "score": 100.0,
+        "color": "#4CAF50",
+        "text": "100.0"
+      },
+      "SPH": {
+        "score": 40.0,
+        "color": "#FFC107",
+        "text": "40"
+      },
+      "PHI": {
+        "score": 100.0,
+        "color": "#4CAF50",
+        "text": "100.0"
+      },
+      "Host_Star_Type": {
+        "score": 0.0,
+        "color": "#F44336",
+        "text": "0"
+      },
+      "System_Age": {
+        "score": 60.0,
+        "color": "#8BC34A",
+        "text": "60"
+      },
+      "Stellar_Activity": {
+        "score": 30.0,
+        "color": "#fd7e14",
+        "text": "Low (default or <= 2 Gyr)"
+      },
+      "Orbital_Eccentricity": {
+        "score": 95.0,
+        "color": "#F44336",
+        "text": "95"
+      },
+      "Atmosphere_Potential": {
+        "score": 90.0,
+        "color": "#28a745",
+        "text": "Likely"
+      },
+      "Liquid_Water_Potential": {
+        "score": 90.0,
+        "color": "#28a745",
+        "text": "Likely"
+      },
+      "Magnetic_Activity": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "N/A"
+      },
+      "Presence_of_Moons": {
+        "score": 80.0,
+        "color": "#28a745",
+        "text": "Possible"
+      },
+      "Habitable_Zone_Position": {
+        "score": 20.0,
+        "color": "#FF9800",
+        "text": "20"
+      },
+      "Temperature": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "Unlikely"
+      },
+      "Bio Potential": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "Unlikely"
+      },
+      "Presence of Moons": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "Possible"
+      },
+      "Size": {
+        "score": 100.0,
+        "color": "#4CAF50",
+        "text": "100"
+      },
+      "Density": {
+        "score": 100.0,
+        "color": "#4CAF50",
+        "text": "100"
+      },
+      "Mass": {
+        "score": 100.0,
+        "color": "#4CAF50",
+        "text": "100"
+      },
+      "Star_Metallicity": {
+        "score": 90.0,
+        "color": "#4CAF50",
+        "text": "90"
+      },
+      "Habitability": {
+        "score": 10.00001291708342,
+        "color": "#dc3545",
+        "text": "Overall Habitability Score"
+      }
+    },
+    "sephi_scores": {
+      "SEPHI": {
+        "score": 17.17,
+        "color": "#F44336",
+        "text": "17.17"
+      },
+      "SEPHI_L1": {
+        "score": 63.4,
+        "color": "#8BC34A",
+        "text": "63.4"
+      },
+      "SEPHI_L2": {
+        "score": 99.9,
+        "color": "#4CAF50",
+        "text": "99.9"
+      },
+      "SEPHI_L3": {
+        "score": 6.7,
+        "color": "#F44336",
+        "text": "6.7"
+      },
+      "SEPHI_L4": {
+        "score": 2.0,
+        "color": "#F44336",
+        "text": "2.0"
+      }
+    },
+    "star_info": {
+      "temperature_k": "2566",
+      "radius_solar": "0.12",
+      "mass_solar": "0.09",
+      "luminosity_log_solar": "-3.26",
+      "age_gyr": "0.50",
+      "metallicity_dex": "N/A",
+      "constellation": "N/A",
+      "distance_ly": "40.54"
+    },
+    "magnetic_activity_score": 80,
+    "presence_of_moons_score": 80,
+    "atmosphere_potential_desc": "Likely",
+    "liquid_water_potential_desc": "Likely",
+    "magnetic_activity_desc": "High",
+    "presence_of_moons_desc": "Possible",
+    "discovery_method": "Transit",
+    "discovery_year": "2016",
+    "discovery_facility": "TRAPPISTCAM",
+    "discovery_telescope": "0.60 m Transiting Planets and Planetesimals Small Telescope",
+    "x_pixel_ra": "346.62639",
+    "y_pixel_dec": "-5.04346",
+    "right_ascension": "23h06m30.33s",
+    "declination": "-05d02m36.46s"
+  },
+  {
+    "planet_name": "Kepler-22 b",
+    "classification": "Superterran | Mesoplanet (Temperate 2 - Optimal for Earth Life)",
+    "star_type": "G5 V",
+    "distance_light_years": "634.83",
+    "equilibrium_temp_k": "279",
+    "planet_radius_earth": "2.10",
+    "planet_mass_earth": "0.03",
+    "planet_density_gcm3": "5.20",
+    "surface_gravity_g": "2.06",
+    "orbital_period_days": "289.86",
+    "semi_major_axis_au": "0.81",
+    "eccentricity": "0.72",
+    "travel_curiosities": {
+      "distance_ly": "634.83",
+      "current_tech_years": "1119.5 thousand years",
+      "twenty_ls_years": "3174.2 years",
+      "near_ls_years": "641.2 years"
+    },
+    "habitable_zone_description": "627.3",
+    "scores": {
+      "ESI": {
+        "score": 95.71,
+        "color": "#4CAF50",
+        "text": "95.71"
+      },
+      "SPH": {
+        "score": 77.02,
+        "color": "#8BC34A",
+        "text": "77.02"
+      },
+      "PHI": {
+        "score": 40.97,
+        "color": "#FFC107",
+        "text": "40.97"
+      },
+      "Host_Star_Type": {
+        "score": 95.0,
+        "color": "#4CAF50",
+        "text": "95"
+      },
+      "System_Age": {
+        "score": 90.0,
+        "color": "#4CAF50",
+        "text": "90"
+      },
+      "Stellar_Activity": {
+        "score": 90.0,
+        "color": "#28a745",
+        "text": "High (age > 5 Gyr)"
+      },
+      "Orbital_Eccentricity": {
+        "score": 10.0,
+        "color": "#4CAF50",
+        "text": "10"
+      },
+      "Atmosphere_Potential": {
+        "score": 90.0,
+        "color": "#28a745",
+        "text": "Likely"
+      },
+      "Liquid_Water_Potential": {
+        "score": 90.0,
+        "color": "#28a745",
+        "text": "Likely"
+      },
+      "Magnetic_Activity": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "N/A"
+      },
+      "Presence_of_Moons": {
+        "score": 80.0,
+        "color": "#28a745",
+        "text": "Possible"
+      },
+      "Habitable_Zone_Position": {
+        "score": 95.0,
+        "color": "#4CAF50",
+        "text": "95"
+      },
+      "Temperature": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "Unlikely"
+      },
+      "Bio Potential": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "Unlikely"
+      },
+      "Presence of Moons": {
+        "score": 0.0,
+        "color": "#808080",
+        "text": "Possible"
+      },
+      "Size": {
+        "score": 90.0,
+        "color": "#4CAF50",
+        "text": "90"
+      },
+      "Density": {
+        "score": 50.0,
+        "color": "#FFC107",
+        "text": "50"
+      },
+      "Mass": {
+        "score": 70.0,
+        "color": "#8BC34A",
+        "text": "70"
+      },
+      "Star_Metallicity": {
+        "score": 90.0,
+        "color": "#4CAF50",
+        "text": "90"
+      },
+      "Habitability": {
+        "score": 1.22117889225827e-05,
+        "color": "#dc3545",
+        "text": "Overall Habitability Score"
+      }
+    },
+    "sephi_scores": {
+      "SEPHI": {
+        "score": 91.79,
+        "color": "#4CAF50",
+        "text": "91.79"
+      },
+      "SEPHI_L1": {
+        "score": 77.7,
+        "color": "#8BC34A",
+        "text": "77.7"
+      },
+      "SEPHI_L2": {
+        "score": 91.4,
+        "color": "#4CAF50",
+        "text": "91.4"
+      },
+      "SEPHI_L3": {
+        "score": 100.0,
+        "color": "#4CAF50",
+        "text": "100.0"
+      },
+      "SEPHI_L4": {
+        "score": 100.0,
+        "color": "#4CAF50",
+        "text": "100.0"
+      }
+    },
+    "star_info": {
+      "temperature_k": "5596",
+      "radius_solar": "0.87",
+      "mass_solar": "0.86",
+      "luminosity_log_solar": "-0.19",
+      "age_gyr": "7.00",
+      "metallicity_dex": "N/A",
+      "constellation": "N/A",
+      "distance_ly": "634.83"
+    },
+    "magnetic_activity_score": 80,
+    "presence_of_moons_score": 80,
+    "atmosphere_potential_desc": "Likely",
+    "liquid_water_potential_desc": "Likely",
+    "magnetic_activity_desc": "High",
+    "presence_of_moons_desc": "Possible",
+    "discovery_method": "Transit",
+    "discovery_year": "2011",
+    "discovery_facility": "Kepler CCD Array",
+    "discovery_telescope": "0.95 m Kepler Telescope",
+    "x_pixel_ra": "289.21721",
+    "y_pixel_dec": "47.88414",
+    "right_ascension": "19h16m52.13s",
+    "declination": "+47d53m02.91s"
+  }
+]
