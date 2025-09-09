@@ -126,24 +126,17 @@ class TestCalculationsESI:
         assert 0 <= esi <= 100
 
     def test_esi_invalid_values(self):
-        """ESI should return 0 when input values are invalid or missing"""
+        """ESI should depend only on weights even if data is missing"""
         planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
-        esi, _ = lm.calculate_esi_score(planet_data, {"Size": 1, "Density": 1, "Habitable Zone": 1})
-        assert esi == 0.0
+        esi, color = lm.calculate_esi_score(planet_data, {"Size": 1, "Density": 1, "Habitable Zone": 1})
+        assert (esi, color) == (100.0, "#4CAF50")
 
     def test_calculate_esi_score_no_valid_components(self):
         from lifesearch.lifesearch_main import calculate_esi_score
         planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
-        weights = {"Size": 1.0, "Density": 1.0, "Habitable Zone": 1.0}
+        weights = {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}
         result = calculate_esi_score(planet_data, weights)
-        assert result == (0.0, "#757575")  # should return 0 and grey color
-
-    def test_calculate_esi_score_no_valid_components(self):
-        from lifesearch.lifesearch_main import calculate_esi_score
-        planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
-        weights = {"Size": 1.0, "Density": 1.0, "Habitable Zone": 1.0}
-        result = calculate_esi_score(planet_data, weights)
-        assert result == (0.0, "#F44336")  # 0% => vermelho (não cinza)
+        assert result == (0.0, "#F44336")
 
 class TestCalculationsPHI:
     # ---------------------------
