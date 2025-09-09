@@ -9,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from lifesearch.data import fetch_exoplanet_data_api, load_hwc_catalog, load_hzgallery_catalog, merge_data_sources, normalize_name
 from lifesearch.reports import plot_habitable_zone, plot_scores_comparison, generate_planet_report_html, generate_summary_report_html, generate_combined_report_html
-from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider
+from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider, initial_esi_weights
 from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm # Ajuste conforme necessário
 #from .utils import normalize_name, DEFAULT_HABITABILITY_WEIGHTS, DEFAULT_PHI_WEIGHTS # Ajuste
 from lifesearch.data import load_hwc_catalog, load_hzgallery_catalog # Ajuste
@@ -32,7 +32,7 @@ from lifesearch.reports import (
     generate_summary_report_html,
     generate_combined_report_html,
 )
-from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider
+from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider, initial_esi_weights
 from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm
 
 logger = logging.getLogger(__name__)
@@ -525,14 +525,23 @@ def results():
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         logger.info(f"Normalized planet name: '{planet_name}' -> '{normalized_planet_name}'")
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
+        combined_data_dict = combined_data.to_dict() if hasattr(combined_data, "to_dict") else combined_data
 
-        if use_individual_weights and normalized_planet_name in individual_planet_weights_map:
-            planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
-            logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
-            current_hab_weights = planet_specific_weights_entry.get('habitability', global_habitability_weights)
-            current_phi_weights = planet_specific_weights_entry.get('phi', global_phi_weights)
+        if use_individual_weights:
+            if normalized_planet_name in individual_planet_weights_map:
+                planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
+                logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
+                current_hab_weights = planet_specific_weights_entry.get('habitability', global_habitability_weights)
+                current_phi_weights = planet_specific_weights_entry.get('phi', global_phi_weights)
+            else:
+                logger.info(
+                    f"No individual weights found for '{normalized_planet_name}' with use_individual_weights=True. "
+                    "Calculating reference-based weights."
+                )
+                current_hab_weights = initial_esi_weights(combined_data_dict)
+                current_phi_weights = sliders_phi(combined_data_dict)
         else:
-            logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
+            logger.info(f"No individual weights or feature disabled. Using global weights for '{normalized_planet_name}'.")
             current_hab_weights = global_habitability_weights
             current_phi_weights = global_phi_weights
 
