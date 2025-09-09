@@ -9,31 +9,20 @@ from jinja2 import Environment, FileSystemLoader
 
 from lifesearch.data import fetch_exoplanet_data_api, load_hwc_catalog, load_hzgallery_catalog, merge_data_sources, normalize_name
 from lifesearch.reports import plot_habitable_zone, plot_scores_comparison, generate_planet_report_html, generate_summary_report_html, generate_combined_report_html
-from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider, initial_esi_weights
-from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm # Ajuste conforme necessário
+from lifesearch.lifesearch_main import (
+    process_planet_data,
+    sliders_phi,
+    reference_values_slider,
+    initial_esi_weights,
+    classify_planet,
+)
+from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm  # Ajuste conforme necessário
 #from .utils import normalize_name, DEFAULT_HABITABILITY_WEIGHTS, DEFAULT_PHI_WEIGHTS # Ajuste
-from lifesearch.data import load_hwc_catalog, load_hzgallery_catalog # Ajuste
+from lifesearch.data import load_hwc_catalog, load_hzgallery_catalog  # Ajuste
 import requests
 import math
 import json
 
-
-from lifesearch.data import (
-    fetch_exoplanet_data_api,
-    load_hwc_catalog,
-    load_hzgallery_catalog,
-    merge_data_sources,
-    normalize_name,
-)
-from lifesearch.reports import (
-    plot_habitable_zone,
-    plot_scores_comparison,
-    generate_planet_report_html,
-    generate_summary_report_html,
-    generate_combined_report_html,
-)
-from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider, initial_esi_weights
-from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm
 
 logger = logging.getLogger(__name__)
 
@@ -390,36 +379,20 @@ def get_planet_reference_values():
             combined_data,
             weights
         )
-        
+
         if processed_result:
             planet_data = processed_result.get("planet_data_dict", {})
-            scores = processed_result.get("scores_for_report", {})
-            
-            logger.info(f"API reference_values - Scores for {normalized_planet_name}: {scores}")
-            
-            esi_data_api = scores.get("ESI")
-            if isinstance(esi_data_api, tuple):
-                esi_val_api = esi_data_api[0]
-            elif isinstance(esi_data_api, (float, int)):
-                esi_val_api = esi_data_api
-            else:
-                esi_val_api = 0.0
-            
-            phi_data_api = scores.get("PHI")
-            if isinstance(phi_data_api, tuple):
-                phi_val_api = phi_data_api[0]
-            elif isinstance(phi_data_api, (float, int)):
-                phi_val_api = phi_data_api
-            else:
-                phi_val_api = 0.0
-            
+
+            # Calculate reference ESI and PHI using planet-specific defaults
+            esi_val, phi_val = reference_values_slider(planet_data)
+
             reference_planet = {
                 "name": planet_data.get("pl_name", normalized_planet_name),
-                "esi": esi_val_api,
-                "phi": phi_val_api,
+                "esi": esi_val,
+                "phi": phi_val,
                 "classification": planet_data.get("classification", "Unknown")
             }
-            
+
             reference_planets.append(reference_planet)
     
     return jsonify({"planets": reference_planets})
@@ -537,6 +510,11 @@ def results():
                 logger.info(
                     f"No individual weights found for '{normalized_planet_name}' with use_individual_weights=True. "
                     "Calculating reference-based weights."
+                )
+                combined_data_dict["classification"] = classify_planet(
+                    combined_data_dict.get("pl_masse"),
+                    combined_data_dict.get("pl_rade"),
+                    combined_data_dict.get("pl_eqt"),
                 )
                 current_hab_weights = initial_esi_weights(combined_data_dict)
                 current_phi_weights = sliders_phi(combined_data_dict)
