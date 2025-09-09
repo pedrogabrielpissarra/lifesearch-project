@@ -263,63 +263,46 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
 # --- Core Calculation Functions ---
 def calculate_esi_score(planet_data, weights):
     """Calculates the Earth Similarity Index (ESI) for a planet.
-    
-    The ESI measures similarity to Earth based on radius, density, and
-    equilibrium temperature, weighted by the provided weights.
-    
+
+    The ESI is derived directly from user-defined slider weights for
+    radius, density, and equilibrium temperature.
+
     Args:
         planet_data (dict): Dictionary containing planet parameters like
                             'pl_rade', 'pl_dens', 'pl_eqt'.
         weights (dict): Dictionary of weights for 'Size', 'Density',
-                        and 'Habitable Zone' (temperature).
-    
+                        and 'Habitable Zone' (temperature). Each weight
+                        ranges from 0.0 to 1.0 and directly contributes
+                        to the ESI.
+
     Returns:
         tuple: (float ESI_score (0-100), str color_code_for_ESI).
                Returns 0.0 if no valid components are found.
     """
     logger.debug(f"Calculating ESI for planet: {planet_data.get('pl_name', 'Unknown')}")
-    earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
     esi_factors_map = {
-        "pl_rade": weights.get("Size", 1.0),
-        "pl_dens": weights.get("Density", 1.0),
-        "pl_eqt": weights.get("Habitable Zone", 1.0)
+        "pl_rade": weights.get("Size", 0.0),
+        "pl_dens": weights.get("Density", 0.0),
+        "pl_eqt": weights.get("Habitable Zone", 0.0)
     }
+
     esi_components = []
     num_params = 0
-    max_weight = 1.0
 
+    # Cada peso do slider é usado diretamente como componente do ESI
     for param_key, weight_val in esi_factors_map.items():
-        planet_val = planet_data.get(param_key)
-        earth_val = earth_params.get(param_key)
-        logger.debug(f"ESI param: {param_key}, Planet val: {planet_val}, Earth val: {earth_val}, Weight: {weight_val}")
-        if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
-            try:
-                planet_val_fl = float(planet_val)
-                earth_val_fl = float(earth_val)
-                if (planet_val_fl + earth_val_fl) == 0:
-                    similarity_component = 0.0 # pragma: no cover
-                else:
-                    similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
-                if similarity_component < 0:
-                    similarity_component = 0.0 # pragma: no cover
-                # Quando weight_val = 0.0, usar a similaridade real
-                scaled_component = similarity_component if weight_val == 0.0 else (
-                    similarity_component + (1.0 - similarity_component) * (weight_val / max_weight)
-                )
-                esi_components.append(scaled_component)
-                num_params += 1
-                logger.debug(f"ESI scaled component for {param_key}: {scaled_component}, Similarity: {similarity_component}")
-            except (ValueError, TypeError) as e: # pragma: no cover
-                logger.warning(f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}") # pragma: no cover
-        else:
-            logger.debug(f"Skipping ESI param {param_key} due to missing or invalid data: planet_val={planet_val}, earth_val={earth_val}")
+        logger.debug(f"ESI param: {param_key}, Weight: {weight_val}")
+        esi_components.append(weight_val)
+        num_params += 1
+        logger.debug(f"ESI component for {param_key}: {weight_val}")
 
     if not esi_components or num_params == 0:
-        logger.warning("No valid ESI components found.")
+        logger.warning("Nenhum componente ESI válido encontrado.")
         return 0.0, get_color_for_percentage(0.0)
 
-    final_esi = (sum(esi_components) / num_params) * 100 if num_params > 0 else 0.0
-    logger.info(f"Final ESI for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
+    final_esi = (sum(esi_components) / num_params) * 100
+    logger.info(f"ESI final para {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
+
     return round(final_esi, 2), get_color_for_percentage(final_esi)
 
 def calculate_sph_score(planet_data, weights):
@@ -364,23 +347,55 @@ def calculate_sph_score(planet_data, weights):
 
 def calculate_phi_score(planet_data, phi_weights):
     """Calculates a Planetary Habitability Index (PHI) score.
-    
-    PHI is based on factors like "Solid Surface", "Stable Energy",
-    "Life Compounds" (currently not auto-assessed), and "Stable Orbit".
-    These factors are weighted according to phi_weights.
-    
+
+    Each PHI factor ("Solid Surface", "Stable Energy", "Life Compounds",
+    "Stable Orbit") is represented directly by a slider weight in
+    ``phi_weights``. The average of these weights is scaled to a
+    percentage.
+
     Args:
-        planet_data (dict): Dictionary containing planet and star parameters
-                            (e.g., 'classification', 'st_spectype', 'st_age', 'pl_orbeccen').
-        phi_weights (dict): Dictionary of weights for PHI factors.
-    
+        planet_data (dict): Dictionary containing planet and star parameters.
+                           Currently unused but kept for API consistency.
+        phi_weights (dict): Dictionary of weights for PHI factors. Each weight
+                            ranges from 0.0 to 0.25.
+
     Returns:
         tuple: (float PHI_score (0-100), str color_code_for_PHI).
-               Returns 0.0 if total weight is zero.
+               Returns 0.0 if no valid components are found.
     """
     logger.debug(f"Calculating PHI for planet: {planet_data.get('pl_name', 'Unknown')}")
-    
-    factors_present_scores = {
+
+    phi_components = []
+    num_params = 0
+
+    for factor_name, weight_val in phi_weights.items():
+        logger.debug(f"Processando fator PHI: {factor_name}, peso: {weight_val}")
+        phi_components.append(weight_val)
+        num_params += 1
+        logger.debug(f"PHI component for {factor_name}: {weight_val}")
+
+    if not phi_components or num_params == 0:
+        logger.warning("Nenhum componente PHI válido encontrado.")
+        return 0.0, get_color_for_percentage(0.0)
+
+    final_phi = (sum(phi_components) / num_params) * 400
+    final_phi = max(0.0, min(final_phi, 100.0))
+
+    logger.info(f"PHI final para {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
+
+    return round(final_phi, 2), get_color_for_percentage(final_phi)
+
+
+def sliders_phi(planet_data):
+    """Calcula os pesos iniciais para os sliders de PHI.
+
+    Args:
+        planet_data (dict): Dicionário contendo dados do planeta.
+
+    Returns:
+        dict: Dicionário com pesos iniciais para os sliders de PHI.
+    """
+    phi_factors = {
         "Solid Surface": 0.0,
         "Stable Energy": 0.0,
         "Life Compounds": 0.0,
@@ -389,8 +404,7 @@ def calculate_phi_score(planet_data, phi_weights):
 
     # Avaliação automática de "Solid Surface"
     if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
-        factors_present_scores["Solid Surface"] = 0.8
-        logger.debug("Solid Surface detected: score 0.8")
+        phi_factors["Solid Surface"] = 0.8
 
     # Avaliação automática de "Stable Energy"
     st_spectype = planet_data.get("st_spectype", "")
@@ -399,10 +413,9 @@ def calculate_phi_score(planet_data, phi_weights):
         try:
             st_age_float = float(st_age.strip()) if isinstance(st_age, str) else float(st_age)
             if 1.0 < st_age_float < 8.0:
-                factors_present_scores["Stable Energy"] = 0.7
-                logger.debug("Stable Energy conditions met: score 0.7")
-        except (ValueError, TypeError, AttributeError) as e: # pragma: no cover
-            logger.warning(f"st_age could not be converted to float for Stable Energy: {st_age}. Error: {e}") # pragma: no cover
+                phi_factors["Stable Energy"] = 0.7
+        except (ValueError, TypeError, AttributeError):
+            pass
 
     # Avaliação automática de "Stable Orbit"
     pl_orbeccen = planet_data.get("pl_orbeccen")
@@ -410,38 +423,55 @@ def calculate_phi_score(planet_data, phi_weights):
         try:
             pl_orbeccen_float = float(pl_orbeccen.strip()) if isinstance(pl_orbeccen, str) else float(pl_orbeccen)
             if pl_orbeccen_float < 0.2:
-                factors_present_scores["Stable Orbit"] = 0.9
-                logger.debug("Stable Orbit detected: score 0.9")
-        except (ValueError, TypeError, AttributeError) as e: # pragma: no cover
-            logger.warning(f"pl_orbeccen could not be converted to float for Stable Orbit: {pl_orbeccen}. Error: {e}") # pragma: no cover
+                phi_factors["Stable Orbit"] = 0.9
+        except (ValueError, TypeError, AttributeError):
+            pass
 
-    logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
+    # Converter os fatores base para a faixa de 0.0 a 0.25 para os sliders
+    initial_phi_weights = {}
+    for factor_name, factor_score in phi_factors.items():
+        initial_phi_weights[factor_name] = factor_score * 0.25
 
-    phi_components = []
-    num_params = 0
-    max_weight = 0.25
+    return initial_phi_weights
 
-    for factor_name, weight_val in phi_weights.items():
-        factor_score = factors_present_scores.get(factor_name, 0.0)
-        logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
-        # Quando weight_val = 0.0, usar o score real; quando weight_val = 0.25, interpolar para 1.0
-        scaled_component = factor_score if weight_val == 0.0 else (
-            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
-        )
-        phi_components.append(scaled_component)
-        num_params += 1
-        logger.debug(f"PHI scaled component for {factor_name}: {scaled_component}, Original score: {factor_score}")
 
-    if not phi_components or num_params == 0:
-        logger.warning("No valid PHI components found.")
-        return 0.0, get_color_for_percentage(0.0)
+def reference_values_slider(planet_data):
+    """Calcula valores de referência para ESI e PHI.
 
-    final_phi = (sum(phi_components) / num_params) * 100 if num_params > 0 else 0.0
-    final_phi = max(0.0, min(final_phi, 100.0))
+    Args:
+        planet_data (dict): Dicionário contendo dados do planeta.
 
-    logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
+    Returns:
+        tuple: (esi_val, phi_val) como percentuais.
+    """
+    earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
+    esi_similarities = []
 
-    return round(final_phi, 2), get_color_for_percentage(final_phi)
+    for param_key, earth_val in earth_params.items():
+        planet_val = planet_data.get(param_key)
+        if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
+            try:
+                planet_val_fl = float(planet_val)
+                earth_val_fl = float(earth_val)
+                similarity = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
+                if similarity < 0:
+                    similarity = 0.0
+                esi_similarities.append(similarity)
+            except (ValueError, TypeError):
+                pass
+
+    esi_val = 0.0
+    if esi_similarities:
+        esi_val = (sum(esi_similarities) / len(esi_similarities)) * 100
+
+    initial_phi_weights = sliders_phi(planet_data)
+    phi_components = list(initial_phi_weights.values())
+    phi_val = 0.0
+    if phi_components:
+        phi_val = (sum(phi_components) / len(phi_components)) * 400
+        phi_val = max(0.0, min(phi_val, 100.0))
+
+    return round(esi_val, 2), round(phi_val, 2)
 
 # --- Habiitability Score Calculation Function - Lifersearch Project ---
 def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weights_config):
