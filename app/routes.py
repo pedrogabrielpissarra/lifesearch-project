@@ -9,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from lifesearch.data import fetch_exoplanet_data_api, load_hwc_catalog, load_hzgallery_catalog, merge_data_sources, normalize_name
 from lifesearch.reports import plot_habitable_zone, plot_scores_comparison, generate_planet_report_html, generate_summary_report_html, generate_combined_report_html
-from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider
+from lifesearch.lifesearch_main import process_planet_data
 from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm # Ajuste conforme necessário
 #from .utils import normalize_name, DEFAULT_HABITABILITY_WEIGHTS, DEFAULT_PHI_WEIGHTS # Ajuste
 from lifesearch.data import load_hwc_catalog, load_hzgallery_catalog # Ajuste
@@ -32,7 +32,7 @@ from lifesearch.reports import (
     generate_summary_report_html,
     generate_combined_report_html,
 )
-from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider
+from lifesearch.lifesearch_main import process_planet_data
 from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm
 
 logger = logging.getLogger(__name__)
@@ -80,9 +80,13 @@ DEFAULT_HABITABILITY_WEIGHTS = {
     "Water": 1.0, "Presence of Moons": 1.0, "Magnetic Activity": 1.0, "System Age": 1.0
 }
 DEFAULT_PHI_WEIGHTS = {
-    "Solid Surface": 0.25, "Stable Energy": 0.25, 
+    "Solid Surface": 0.25, "Stable Energy": 0.25,
     "Life Compounds": 0.25, "Stable Orbit": 0.25
 }
+
+# Neutral (zero) weights used when no user configuration is provided
+ZERO_HABITABILITY_WEIGHTS = {k: 0.0 for k in DEFAULT_HABITABILITY_WEIGHTS}
+ZERO_PHI_WEIGHTS = {k: 0.0 for k in DEFAULT_PHI_WEIGHTS}
 
 from flask import current_app as app
 
@@ -170,10 +174,10 @@ def configure():
     hab_form = HabitabilityWeightsForm(prefix="hab")
     phi_form = PHIWeightsForm(prefix="phi")
 
-    default_hab_weights = DEFAULT_HABITABILITY_WEIGHTS 
+    default_hab_weights = DEFAULT_HABITABILITY_WEIGHTS
     default_phi_weights = DEFAULT_PHI_WEIGHTS
-    current_global_hab_weights = session.get("habitability_weights", default_hab_weights)
-    current_global_phi_weights = session.get("phi_weights", default_phi_weights)
+    current_global_hab_weights = session.get("habitability_weights", ZERO_HABITABILITY_WEIGHTS)
+    current_global_phi_weights = session.get("phi_weights", ZERO_PHI_WEIGHTS)
     current_planet_specific_weights = session.get("planet_weights", {})
     use_individual = session.get("use_individual_weights", False)
 
@@ -183,8 +187,8 @@ def configure():
     if planet_names_list:
         default_habitability_weights_ref = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
         default_phi_weights_ref = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
-        global_habitability_weights_ref = session.get("habitability_weights", default_habitability_weights_ref)
-        global_phi_weights_ref = session.get("phi_weights", default_phi_weights_ref)
+        global_habitability_weights_ref = session.get("habitability_weights", ZERO_HABITABILITY_WEIGHTS)
+        global_phi_weights_ref = session.get("phi_weights", ZERO_PHI_WEIGHTS)
         
         hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
         hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
@@ -204,20 +208,36 @@ def configure():
             combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
             
             logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
-
+            
             # Calcular ESI e PHI com pesos padrão (0.0 para habitability, 0.0 para PHI)
             processed_result = process_planet_data(
                 normalized_planet_name,
                 combined_data,
-                {"habitability": {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0},
+                {"habitability": {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}, 
                  "phi": {"Solid Surface": 0.0, "Stable Energy": 0.0, "Life Compounds": 0.0, "Stable Orbit": 0.0}}
             )
-
+            
             if processed_result:
                 planet_data = processed_result.get("planet_data_dict", {})
+                scores = processed_result.get("scores_for_report", {})
+                
+                logger.info(f"Configure: scores para {normalized_planet_name}: {scores}")
+                
+                esi_data = scores.get("ESI")
+                if isinstance(esi_data, tuple):
+                    esi_val = esi_data[0]
+                elif isinstance(esi_data, (float, int)):
+                    esi_val = esi_data
+                else:
+                    esi_val = 0.0
 
-                # CORREÇÃO: Calcular valores de referência corretos para ESI e PHI
-                esi_val, phi_val = reference_values_slider(planet_data)
+                phi_data = scores.get("PHI")
+                if isinstance(phi_data, tuple):
+                    phi_val = phi_data[0]
+                elif isinstance(phi_data, (float, int)):
+                    phi_val = phi_data
+                else:
+                    phi_val = 0.0
 
                 reference_planet = {
                     "name": planet_data.get("pl_name", normalized_planet_name),
@@ -226,7 +246,6 @@ def configure():
                     "classification": planet_data.get("classification", "Unknown")
                 }
                 reference_values.append(reference_planet)
-                logger.info(f"Reference values para {normalized_planet_name}: ESI={esi_val}%, PHI={phi_val}%")
 
                 # Calcular similaridades reais para pesos iniciais do ESI
                 earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
@@ -266,42 +285,84 @@ def configure():
                 if num_esi_params > 0 and total_similarity > 0:
                     for weight_key in esi_factors_map.values():
                         initial_hab_weights[normalized_planet_name][weight_key] = similarities[weight_key]
-                        logger.debug(
-                            f"Initial ESI weight for {weight_key}: {initial_hab_weights[normalized_planet_name][weight_key]}"
-                        )
+                        logger.debug(f"Initial ESI weight for {weight_key}: {initial_hab_weights[normalized_planet_name][weight_key]}")
                 else:
-                    logger.warning(
-                        f"No valid ESI similarities calculated for {normalized_planet_name}. Using ESI target as fallback."
-                    )
+                    logger.warning(f"No valid ESI similarities calculated for {normalized_planet_name}. Using ESI target as fallback.")
                     for weight_key in esi_factors_map.values():
-                        initial_hab_weights[normalized_planet_name][weight_key] = (
-                            esi_target / num_esi_params if num_esi_params > 0 else 0.0
-                        )
+                        initial_hab_weights[normalized_planet_name][weight_key] = esi_target / num_esi_params if num_esi_params > 0 else 0.0
 
-                # CORREÇÃO: Calcular pesos iniciais para PHI usando a função sliders_phi
-                initial_phi_weights[normalized_planet_name] = sliders_phi(planet_data)
-                logger.info(
-                    f"Initial PHI weights para {normalized_planet_name}: {initial_phi_weights[normalized_planet_name]}"
-                )
+                # Calcular fatores reais para pesos iniciais do PHI
+                phi_factors = {
+                    "Solid Surface": 0.0,
+                    "Stable Energy": 0.0,
+                    "Life Compounds": 0.0,
+                    "Stable Orbit": 0.0
+                }
+                if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
+                    phi_factors["Solid Surface"] = 0.8
+                if isinstance(planet_data.get("st_spectype", ""), str) and (
+                    planet_data.get("st_spectype", "").startswith("G") or 
+                    planet_data.get("st_spectype", "").startswith("K")
+                ) and pd.notna(planet_data.get("st_age")):
+                    try:
+                        st_age_float = float(planet_data.get("st_age"))
+                        if 1.0 < st_age_float < 8.0:
+                            phi_factors["Stable Energy"] = 0.7
+                    except (ValueError, TypeError):
+                        pass
+                if pd.notna(planet_data.get("pl_orbeccen")):
+                    try:
+                        pl_orbeccen_float = float(planet_data.get("pl_orbeccen"))
+                        if pl_orbeccen_float < 0.2:
+                            phi_factors["Stable Orbit"] = 0.9
+                    except (ValueError, TypeError):
+                        pass
+
+                total_factor_score = sum(phi_factors.values())
+                num_phi_params = len([score for score in phi_factors.values() if score > 0])
+                phi_target = phi_val / 100.0 if phi_val > 0 else 0.0
+                initial_phi_weights[normalized_planet_name] = {
+                    "Solid Surface": 0.0,
+                    "Stable Energy": 0.0,
+                    "Life Compounds": 0.0,
+                    "Stable Orbit": 0.0
+                }
+                if num_phi_params > 0 and total_factor_score > 0:
+                    for factor_name in phi_factors:
+                        # Escalar o factor_score para a faixa 0.0 a 0.25
+                        initial_phi_weights[normalized_planet_name][factor_name] = (
+                            phi_factors[factor_name] / 4.0 * phi_target
+                        ) if phi_val > 0 else 0.0
+                        logger.debug(f"Initial PHI weight for {factor_name}: {initial_phi_weights[normalized_planet_name][factor_name]}")
+                else:
+                    logger.warning(f"No valid PHI factors calculated for {normalized_planet_name}. Using PHI target as fallback.")
+                    for factor_name in phi_factors:
+                        initial_phi_weights[normalized_planet_name][factor_name] = phi_target / len(phi_factors) if phi_val > 0 else 0.0
+
+    session['initial_hab_weights'] = initial_hab_weights
+    session['initial_phi_weights'] = initial_phi_weights
+    session.modified = True
 
     logger.info(f"Configure: reference_values = {reference_values}")
     logger.info(f"Configure: initial_hab_weights = {initial_hab_weights}")
     logger.info(f"Configure: initial_phi_weights = {initial_phi_weights}")
     logger.info(f"Configure: initial_hab_weights_json = {json.dumps(initial_hab_weights)}")
     logger.info(f"Configure: initial_phi_weights_json = {json.dumps(initial_phi_weights)}")
-    return render_template("configure.html", 
-                           hab_form=hab_form, 
-                           phi_form=phi_form, 
-                           title="Configure Weights", 
-                           reference_values=reference_values,
-                           default_hab_weights_json=json.dumps(default_hab_weights),
-                           default_phi_weights_json=json.dumps(default_phi_weights),
-                           current_global_hab_weights_json=json.dumps(current_global_hab_weights),
-                           current_global_phi_weights_json=json.dumps(current_global_phi_weights),
-                           current_planet_specific_weights_json=json.dumps(current_planet_specific_weights),
-                           use_individual_weights_val=use_individual,
-                           initial_hab_weights_json=json.dumps(initial_hab_weights),
-                           initial_phi_weights_json=json.dumps(initial_phi_weights))
+    return render_template(
+        "configure.html",
+        hab_form=hab_form,
+        phi_form=phi_form,
+        title="Configure Weights",
+        reference_values=reference_values,
+        default_hab_weights_json=json.dumps(default_hab_weights),
+        default_phi_weights_json=json.dumps(default_phi_weights),
+        current_global_hab_weights_json=json.dumps(current_global_hab_weights),
+        current_global_phi_weights_json=json.dumps(current_global_phi_weights),
+        current_planet_specific_weights_json=json.dumps(current_planet_specific_weights),
+        use_individual_weights_val=use_individual,
+        initial_hab_weights_json=json.dumps(initial_hab_weights),
+        initial_phi_weights_json=json.dumps(initial_phi_weights)
+    )
 
 @routes_bp.route("/api/planets/reference-values", methods=["GET"])
 def get_planet_reference_values_hyphen():
@@ -348,11 +409,15 @@ def get_planet_reference_values():
         use_individual_weights = data.get("use_individual_weights", False)
         planet_weights = data.get("planet_weights", {})
         logger.info(f"API reference_values - POST data: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
+        if use_individual_weights and not planet_weights:
+            use_individual_weights = False
     
     default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
     default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
-    global_habitability_weights = session.get("habitability_weights", default_habitability_weights)
-    global_phi_weights = session.get("phi_weights", default_phi_weights)
+    zero_habitability_weights = {k: 0.0 for k in default_habitability_weights}
+    zero_phi_weights = {k: 0.0 for k in default_phi_weights}
+    global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
+    global_phi_weights = session.get("phi_weights", zero_phi_weights)
     
     logger.info(f"API reference_values - Global weights: hab={global_habitability_weights}, phi={global_phi_weights}")
     
@@ -448,8 +513,10 @@ def results():
     
     default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
     default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
-    global_habitability_weights = session.get("habitability_weights", default_habitability_weights)
-    global_phi_weights = session.get("phi_weights", default_phi_weights)
+    zero_habitability_weights = {k: 0.0 for k in default_habitability_weights}
+    zero_phi_weights = {k: 0.0 for k in default_phi_weights}
+    global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
+    global_phi_weights = session.get("phi_weights", zero_phi_weights)
 
     use_individual_weights = session.get('use_individual_weights', False)
     individual_planet_weights_map = session.get('planet_weights', {}) 
@@ -823,29 +890,52 @@ def save_planet_weights():
     data = request.json
     use_individual_weights = data.get('use_individual_weights', False)
     planet_weights = data.get('planet_weights', {})
-    
+
     logger.info(f"API save-planet-weights - Raw input: {data}")
-    
+
     normalized_planet_weights = {}
     for planet_name, weights in planet_weights.items():
         normalized_name = normalize_name(planet_name)
         normalized_planet_weights[normalized_name] = weights
         logger.info(f"API save-planet-weights - Normalized '{planet_name}' to '{normalized_name}'")
-    
+
     logger.info(f"API save-planet-weights - Normalized planet_weights: {normalized_planet_weights}")
-    
-    session['use_individual_weights'] = use_individual_weights
-    
-    if use_individual_weights and normalized_planet_weights:
-        # Mesclar com pesos existentes na sessão
+
+    initial_hab_weights = session.get('initial_hab_weights', {})
+    initial_phi_weights = session.get('initial_phi_weights', {})
+
+    filtered_planet_weights = {}
+    for planet_name, weights in normalized_planet_weights.items():
+        hab_weights = weights.get('habitability', {})
+        phi_weights = weights.get('phi', {})
+        filtered_hab = {}
+        filtered_phi = {}
+        for key, value in hab_weights.items():
+            if not math.isclose(value, initial_hab_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
+                filtered_hab[key] = value
+        for key, value in phi_weights.items():
+            if not math.isclose(value, initial_phi_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
+                filtered_phi[key] = value
+        if filtered_hab or filtered_phi:
+            filtered_planet_weights[planet_name] = {}
+            if filtered_hab:
+                filtered_planet_weights[planet_name]['habitability'] = filtered_hab
+            if filtered_phi:
+                filtered_planet_weights[planet_name]['phi'] = filtered_phi
+
+    if use_individual_weights and filtered_planet_weights:
         existing_weights = session.get('planet_weights', {})
-        existing_weights.update(normalized_planet_weights)
+        existing_weights.update(filtered_planet_weights)
         session['planet_weights'] = existing_weights
+        session['use_individual_weights'] = True
         session.modified = True
         logger.info(f"API save-planet-weights - Saved to session: planet_weights={session['planet_weights']}")
         logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
-    
-    return jsonify({'status': 'success'})
+    else:
+        session.pop('planet_weights', None)
+        session['use_individual_weights'] = False
+
+    return jsonify({'status': 'success', 'saved_weights': filtered_planet_weights})
 
 @routes_bp.route('/api/debug-session', methods=['GET'])
 def debug_session():
