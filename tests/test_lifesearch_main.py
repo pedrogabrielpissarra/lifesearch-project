@@ -138,6 +138,20 @@ class TestCalculationsESI:
         result = calculate_esi_score(planet_data, weights)
         assert result == (0.0, "#F44336")
 
+    def test_initial_esi_weights_matches_reference(self):
+        from lifesearch.lifesearch_main import initial_esi_weights, calculate_esi_score, reference_values_slider
+        planet_data = {"pl_rade": 0.53, "pl_dens": 3.93, "pl_eqt": 210.0}
+        weights = initial_esi_weights(planet_data)
+        esi_calc, _ = calculate_esi_score(planet_data, weights)
+        esi_ref, _ = reference_values_slider(planet_data)
+        assert abs(esi_calc - esi_ref) < 1e-6
+
+    def test_initial_esi_weights_handles_missing_data(self):
+        from lifesearch.lifesearch_main import initial_esi_weights
+        planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
+        weights = initial_esi_weights(planet_data)
+        assert weights == {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}
+
 class TestCalculationsPHI:
     # ---------------------------
     # PHI

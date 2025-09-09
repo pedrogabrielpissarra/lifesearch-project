@@ -386,6 +386,43 @@ def calculate_phi_score(planet_data, phi_weights):
     return round(final_phi, 2), get_color_for_percentage(final_phi)
 
 
+def initial_esi_weights(planet_data):
+    """Compute default ESI slider weights based on Earth similarity.
+
+    Args:
+        planet_data (dict): Dictionary containing planet parameters such as
+            radius (pl_rade), density (pl_dens) and equilibrium temperature
+            (pl_eqt).
+
+    Returns:
+        dict: Mapping of ESI slider names (Size, Density, Habitable Zone) to
+        weights in the range 0.0-1.0. Missing or invalid data yields 0.0 for
+        the corresponding weight.
+    """
+    earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
+    esi_factors_map = {"pl_rade": "Size", "pl_dens": "Density", "pl_eqt": "Habitable Zone"}
+
+    weights = {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}
+
+    for param_key, weight_key in esi_factors_map.items():
+        planet_val = planet_data.get(param_key)
+        earth_val = earth_params.get(param_key)
+        if pd.notna(planet_val) and pd.notna(earth_val) and (planet_val + earth_val) != 0:
+            try:
+                planet_val_fl = float(planet_val)
+                earth_val_fl = float(earth_val)
+                similarity = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
+                if similarity < 0:
+                    similarity = 0.0
+                weights[weight_key] = similarity
+            except (ValueError, TypeError):
+                weights[weight_key] = 0.0
+        else:
+            weights[weight_key] = 0.0
+
+    return weights
+
+
 def sliders_phi(planet_data):
     """Calcula os pesos iniciais para os sliders de PHI.
 
