@@ -192,18 +192,19 @@ def configure():
         for planet_name in planet_names_list:
             logger.info(f"Processing reference values for planet: {planet_name}")
             api_data = fetch_exoplanet_data_api(planet_name)
-            
+
             if api_data is None:
                 logger.warning(f"Could not fetch API data for reference values of {planet_name}.")
                 continue
-            
+
             if "pl_name" not in api_data or pd.isna(api_data.get("pl_name")):
                 api_data["pl_name"] = planet_name
-                
+
             normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
             combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
-            
-            logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
+            combined_data_dict = combined_data.to_dict() if hasattr(combined_data, "to_dict") else combined_data
+
+            logger.debug(f"Combined data for {normalized_planet_name}: {combined_data_dict}")
 
             # Calcular ESI e PHI com pesos padrão (0.0 para habitability, 0.0 para PHI)
             processed_result = process_planet_data(
@@ -217,7 +218,7 @@ def configure():
                 planet_data = processed_result.get("planet_data_dict", {})
 
                 # CORREÇÃO: Calcular valores de referência corretos para ESI e PHI
-                esi_val, phi_val = reference_values_slider(planet_data)
+                esi_val, phi_val = reference_values_slider(combined_data_dict)
 
                 reference_planet = {
                     "name": planet_data.get("pl_name", normalized_planet_name),
@@ -278,8 +279,8 @@ def configure():
                             esi_target / num_esi_params if num_esi_params > 0 else 0.0
                         )
 
-                # CORREÇÃO: Calcular pesos iniciais para PHI usando a função sliders_phi
-                initial_phi_weights[normalized_planet_name] = sliders_phi(planet_data)
+                # Calcular pesos iniciais para PHI usando dados crus (sem classificação)
+                initial_phi_weights[normalized_planet_name] = sliders_phi(combined_data_dict)
                 logger.info(
                     f"Initial PHI weights para {normalized_planet_name}: {initial_phi_weights[normalized_planet_name]}"
                 )
