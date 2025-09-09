@@ -9,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from lifesearch.data import fetch_exoplanet_data_api, load_hwc_catalog, load_hzgallery_catalog, merge_data_sources, normalize_name
 from lifesearch.reports import plot_habitable_zone, plot_scores_comparison, generate_planet_report_html, generate_summary_report_html, generate_combined_report_html
-from lifesearch.lifesearch_main import process_planet_data
+from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider
 from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm # Ajuste conforme necessário
 #from .utils import normalize_name, DEFAULT_HABITABILITY_WEIGHTS, DEFAULT_PHI_WEIGHTS # Ajuste
 from lifesearch.data import load_hwc_catalog, load_hzgallery_catalog # Ajuste
@@ -32,7 +32,7 @@ from lifesearch.reports import (
     generate_summary_report_html,
     generate_combined_report_html,
 )
-from lifesearch.lifesearch_main import process_planet_data
+from lifesearch.lifesearch_main import process_planet_data, sliders_phi, reference_values_slider
 from .forms import PlanetSearchForm, HabitabilityWeightsForm, PHIWeightsForm
 
 logger = logging.getLogger(__name__)
@@ -204,36 +204,20 @@ def configure():
             combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
             
             logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
-            
+
             # Calcular ESI e PHI com pesos padrão (0.0 para habitability, 0.0 para PHI)
             processed_result = process_planet_data(
                 normalized_planet_name,
                 combined_data,
-                {"habitability": {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}, 
+                {"habitability": {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0},
                  "phi": {"Solid Surface": 0.0, "Stable Energy": 0.0, "Life Compounds": 0.0, "Stable Orbit": 0.0}}
             )
-            
+
             if processed_result:
                 planet_data = processed_result.get("planet_data_dict", {})
-                scores = processed_result.get("scores_for_report", {})
-                
-                logger.info(f"Configure: scores para {normalized_planet_name}: {scores}")
-                
-                esi_data = scores.get("ESI")
-                if isinstance(esi_data, tuple):
-                    esi_val = esi_data[0]
-                elif isinstance(esi_data, (float, int)):
-                    esi_val = esi_data
-                else:
-                    esi_val = 0.0
 
-                phi_data = scores.get("PHI")
-                if isinstance(phi_data, tuple):
-                    phi_val = phi_data[0]
-                elif isinstance(phi_data, (float, int)):
-                    phi_val = phi_data
-                else:
-                    phi_val = 0.0
+                # CORREÇÃO: Calcular valores de referência corretos para ESI e PHI
+                esi_val, phi_val = reference_values_slider(planet_data)
 
                 reference_planet = {
                     "name": planet_data.get("pl_name", normalized_planet_name),
@@ -242,6 +226,7 @@ def configure():
                     "classification": planet_data.get("classification", "Unknown")
                 }
                 reference_values.append(reference_planet)
+                logger.info(f"Reference values para {normalized_planet_name}: ESI={esi_val}%, PHI={phi_val}%")
 
                 # Calcular similaridades reais para pesos iniciais do ESI
                 earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
@@ -281,59 +266,23 @@ def configure():
                 if num_esi_params > 0 and total_similarity > 0:
                     for weight_key in esi_factors_map.values():
                         initial_hab_weights[normalized_planet_name][weight_key] = similarities[weight_key]
-                        logger.debug(f"Initial ESI weight for {weight_key}: {initial_hab_weights[normalized_planet_name][weight_key]}")
+                        logger.debug(
+                            f"Initial ESI weight for {weight_key}: {initial_hab_weights[normalized_planet_name][weight_key]}"
+                        )
                 else:
-                    logger.warning(f"No valid ESI similarities calculated for {normalized_planet_name}. Using ESI target as fallback.")
+                    logger.warning(
+                        f"No valid ESI similarities calculated for {normalized_planet_name}. Using ESI target as fallback."
+                    )
                     for weight_key in esi_factors_map.values():
-                        initial_hab_weights[normalized_planet_name][weight_key] = esi_target / num_esi_params if num_esi_params > 0 else 0.0
+                        initial_hab_weights[normalized_planet_name][weight_key] = (
+                            esi_target / num_esi_params if num_esi_params > 0 else 0.0
+                        )
 
-                # Calcular fatores reais para pesos iniciais do PHI
-                phi_factors = {
-                    "Solid Surface": 0.0,
-                    "Stable Energy": 0.0,
-                    "Life Compounds": 0.0,
-                    "Stable Orbit": 0.0
-                }
-                if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
-                    phi_factors["Solid Surface"] = 0.8
-                if isinstance(planet_data.get("st_spectype", ""), str) and (
-                    planet_data.get("st_spectype", "").startswith("G") or 
-                    planet_data.get("st_spectype", "").startswith("K")
-                ) and pd.notna(planet_data.get("st_age")):
-                    try:
-                        st_age_float = float(planet_data.get("st_age"))
-                        if 1.0 < st_age_float < 8.0:
-                            phi_factors["Stable Energy"] = 0.7
-                    except (ValueError, TypeError):
-                        pass
-                if pd.notna(planet_data.get("pl_orbeccen")):
-                    try:
-                        pl_orbeccen_float = float(planet_data.get("pl_orbeccen"))
-                        if pl_orbeccen_float < 0.2:
-                            phi_factors["Stable Orbit"] = 0.9
-                    except (ValueError, TypeError):
-                        pass
-
-                total_factor_score = sum(phi_factors.values())
-                num_phi_params = len([score for score in phi_factors.values() if score > 0])
-                phi_target = phi_val / 100.0 if phi_val > 0 else 0.0
-                initial_phi_weights[normalized_planet_name] = {
-                    "Solid Surface": 0.0,
-                    "Stable Energy": 0.0,
-                    "Life Compounds": 0.0,
-                    "Stable Orbit": 0.0
-                }
-                if num_phi_params > 0 and total_factor_score > 0:
-                    for factor_name in phi_factors:
-                        # Escalar o factor_score para a faixa 0.0 a 0.25
-                        initial_phi_weights[normalized_planet_name][factor_name] = (
-                            phi_factors[factor_name] / 4.0 * phi_target
-                        ) if phi_val > 0 else 0.0
-                        logger.debug(f"Initial PHI weight for {factor_name}: {initial_phi_weights[normalized_planet_name][factor_name]}")
-                else:
-                    logger.warning(f"No valid PHI factors calculated for {normalized_planet_name}. Using PHI target as fallback.")
-                    for factor_name in phi_factors:
-                        initial_phi_weights[normalized_planet_name][factor_name] = phi_target / len(phi_factors) if phi_val > 0 else 0.0
+                # CORREÇÃO: Calcular pesos iniciais para PHI usando a função sliders_phi
+                initial_phi_weights[normalized_planet_name] = sliders_phi(planet_data)
+                logger.info(
+                    f"Initial PHI weights para {normalized_planet_name}: {initial_phi_weights[normalized_planet_name]}"
+                )
 
     logger.info(f"Configure: reference_values = {reference_values}")
     logger.info(f"Configure: initial_hab_weights = {initial_hab_weights}")
