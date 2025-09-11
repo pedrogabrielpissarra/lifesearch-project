@@ -145,7 +145,6 @@ def to_float_or_none(val):
     try: return float(val)
     except (ValueError, TypeError): return None
 
-
 # --- Plotting Functions ---
 def plot_habitable_zone(planet_data, star_data, hz_limits, output_path, planet_name_slug):
     """Generates and saves a plot of the habitable zone for a given planet.
@@ -421,7 +420,6 @@ def generate_planet_report_html(planet_data_dict, scores, sephi_scores, plots, t
         traceback.print_exc()
         return None
     
-
 def enrich_atmosphere_water_magnetic_moons(data, classification):
     """Estimates potential scores and descriptions for atmosphere, water, magnetic activity, and moons.
     
@@ -448,7 +446,7 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
         try:
             temp = float(temp_str)  # Tentar converter para float
         except (ValueError, TypeError):
-            logger.warning(f"Não foi possível converter pl_eqt '{temp_str}' para float. Tentando recalcular ou usar valor padrão.")
+            logger.warning(f"Could not convert pl_eqt '{temp_str}' to float. Attempting recalculation or using default value.")
             temp = None  # Garantir que temp seja None se a conversão falhar
 
     if temp is None:  # Se era None inicialmente ou a conversão falhou
@@ -464,19 +462,19 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
             if st_rad_str is not None: st_rad_num = float(st_rad_str)
             if pl_orbsmax_str is not None: pl_orbsmax_num = float(pl_orbsmax_str)
         except (ValueError, TypeError):
-            logger.warning(f"Não foi possível converter parâmetros da estrela para cálculo da temperatura para o planeta {data.get('pl_name', 'Desconhecido')}.")
+            logger.warning(f"Could not convert stellar parameters for temperature calculation for planet {data.get('pl_name', 'Unknown')}.")
             # Deixar como None, o bloco seguinte tratará isso
 
         if st_teff_num is not None and st_rad_num is not None and pl_orbsmax_num is not None and pl_orbsmax_num > 0:
             temp = st_teff_num * ((st_rad_num / (2 * pl_orbsmax_num)) ** 0.5) * ((1 - albedo) ** 0.25)
             logger.info(f"Temperatura calculada para {data.get('pl_name', 'Desconhecido')}: {temp:.2f} K")
         else:
-            logger.warning(f"Não foi possível calcular a temperatura para {data.get('pl_name', 'Desconhecido')}, usando valor padrão de 278 K.")
+            logger.warning(f"Unable to calculate temperature for {data.get('pl_name', 'Unknown')}, using default value of 278 K.")
             temp = 278  # Valor padrão se o cálculo não for possível
 
     # Garantir que temp seja um número neste ponto para as comparações
     if temp is None: # Esta condição não deve ser atingida se o padrão for definido
-        logger.error(f"Temperatura inesperadamente None para {data.get('pl_name', 'Desconhecido')} após todas as verificações. Usando 278K.")
+        logger.error(f"Temperature unexpectedly None for {data.get('pl_name', 'Unknown')} after all checks. Using 278 K.")
         temp = 278
 
     # Scores numéricos
@@ -613,7 +611,6 @@ def get_score_info(scores_dict, field_name):
         "color": color_val,
         "text": text_val
     }
-
 
 def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
     logger.info(f"Starting _prepare_data_for_aggregated_reports with {len(all_planets_report_data)} planets")
@@ -1108,7 +1105,6 @@ def generate_summary_report_html(all_planets_report_data, template_env, output_d
         except Exception as e2:
             logger.error(f"Failed to create error report: {e2}")
             return None
-
 
 def generate_combined_report_html(all_planets_report_data, template_env, output_dir):
     """Generates a combined HTML report providing detailed comparisons for multiple planets.
