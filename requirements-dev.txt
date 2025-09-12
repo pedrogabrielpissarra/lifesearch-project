@@ -6,6 +6,6 @@ pytest-spec==5.0.0
 pytest-flask==1.3.0
 pytest-cov
 
-# Documentation
+# Documentations
 mkdocs==1.6.1
 pymdown-extensions==10.11
