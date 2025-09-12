@@ -3,7 +3,7 @@
 {% block content %}
 <div class="pt-4">
     <h2>Configure Weights</h2>
-    <p class="lead">Adjust weights (0.0 to 1.0) for each factor used in habitability calculations. Default values are 1.0 for general factors and 0.25 for PHI components.</p>
+    <p class="lead">Adjust weights (0.0 to 1.0) for each factor used in habitability calculations. Default values are 1.0 for all factors.</p>
 
 <!-- Nova seção para valores de referência -->
 <div class="card mb-4">
@@ -118,10 +118,38 @@ document.addEventListener('DOMContentLoaded', function() {
     ];
 
     const phiFactorDefinitions = [
-        { key: 'solid_surface', label: 'Solid Surface', defaultVal: DEFAULT_PHI_WEIGHTS['Solid Surface'] || 0.25, min: 0, max: 0.25, step: 0.01 },
-        { key: 'stable_energy', label: 'Stable Energy', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Energy'] || 0.25, min: 0, max: 0.25, step: 0.01 },
-        { key: 'life_compounds', label: 'Life Compounds', defaultVal: DEFAULT_PHI_WEIGHTS['Life Compounds'] || 0.25, min: 0, max: 0.25, step: 0.01 },
-        { key: 'stable_orbit', label: 'Stable Orbit', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Orbit'] || 0.25, min: 0, max: 0.25, step: 0.01 }
+        {
+            key: 'solid_surface',
+            label: 'Solid Surface',
+            defaultVal: (DEFAULT_PHI_WEIGHTS['Solid Surface'] || 0.25) / 0.25,
+            min: 0,
+            max: 1,
+            step: 0.01
+        },
+        {
+            key: 'stable_energy',
+            label: 'Stable Energy',
+            defaultVal: (DEFAULT_PHI_WEIGHTS['Stable Energy'] || 0.25) / 0.25,
+            min: 0,
+            max: 1,
+            step: 0.01
+        },
+        {
+            key: 'life_compounds',
+            label: 'Life Compounds',
+            defaultVal: (DEFAULT_PHI_WEIGHTS['Life Compounds'] || 0.25) / 0.25,
+            min: 0,
+            max: 1,
+            step: 0.01
+        },
+        {
+            key: 'stable_orbit',
+            label: 'Stable Orbit',
+            defaultVal: (DEFAULT_PHI_WEIGHTS['Stable Orbit'] || 0.25) / 0.25,
+            min: 0,
+            max: 1,
+            step: 0.01
+        }
     ];
 
     const useIndividualWeightsCheckbox = document.getElementById('use-individual-weights');
@@ -152,7 +180,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const factorDef = (category === 'hab' ? habFactorDefinitions : phiFactorDefinitions).find(f => f.key === weightKey);
         if (!factorDef) {
             console.warn(`Factor definition not found for key: ${weightKey} in category: ${category}`);
-            return (category === 'hab' ? 1.0 : 0.25);
+            return 1.0;
         }
 
         const displayNameKey = factorDef.label;
@@ -164,7 +192,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (category === 'phi' && INITIAL_PHI_WEIGHTS[planetNormalizedName] && INITIAL_PHI_WEIGHTS[planetNormalizedName][displayNameKey] !== undefined) {
             console.log(`Using INITIAL_PHI_WEIGHTS for ${planetNormalizedName}, ${displayNameKey}: ${INITIAL_PHI_WEIGHTS[planetNormalizedName][displayNameKey]}`);
-            return INITIAL_PHI_WEIGHTS[planetNormalizedName][displayNameKey];
+            return INITIAL_PHI_WEIGHTS[planetNormalizedName][displayNameKey] / 0.25;
         }
 
         if (CURRENT_PLANET_SPECIFIC_WEIGHTS &&
@@ -172,13 +200,17 @@ document.addEventListener('DOMContentLoaded', function() {
             CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category] &&
             CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey] !== undefined) {
             console.log(`Using CURRENT_PLANET_SPECIFIC_WEIGHTS for ${planetNormalizedName}, ${displayNameKey}: ${CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey]}`);
-            return CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey];
+            return category === 'phi'
+                ? CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey] / 0.25
+                : CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey];
         }
 
         const globalCategoryWeights = category === 'hab' ? CURRENT_GLOBAL_HAB_WEIGHTS : CURRENT_GLOBAL_PHI_WEIGHTS;
         if (globalCategoryWeights && globalCategoryWeights[displayNameKey] !== undefined) {
             console.log(`Using global weights for ${planetNormalizedName}, ${displayNameKey}: ${globalCategoryWeights[displayNameKey]}`);
-            return globalCategoryWeights[displayNameKey];
+            return category === 'phi'
+                ? globalCategoryWeights[displayNameKey] / 0.25
+                : globalCategoryWeights[displayNameKey];
         }
         
         console.log(`Using default value for ${planetNormalizedName}, ${displayNameKey}: ${factorDef.defaultVal}`);
@@ -307,9 +339,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 phiFactorDefinitions.forEach(factorDef => {
                     const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
                     if (inputElement) {
-                        const val = parseFloat(inputElement.value);
+                        const valNorm = parseFloat(inputElement.value);
+                        const val = valNorm * 0.25;
                         currentPlanetPhiWeights[factorDef.label] = val;
-                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal * 0.25)) > 1e-9) {
                             hasChanges = true;
                         }
                     }
@@ -398,7 +431,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 phiFactorDefinitions.forEach(factor => {
                     const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
                     const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
-                    const initialValue = INITIAL_PHI_WEIGHTS[planetNormalizedName]?.[factor.label] ?? factor.defaultVal;
+                    const rawInitial = INITIAL_PHI_WEIGHTS[planetNormalizedName]?.[factor.label];
+                    const defaultRaw = DEFAULT_PHI_WEIGHTS[factor.label] || 0.25;
+                    const initialValue = (rawInitial ?? defaultRaw) / 0.25;
                     console.log(`Resetting ${planetNormalizedName}, ${factor.label} to ${initialValue}`);
                     if (slider) slider.value = initialValue;
                     if (input) input.value = initialValue;
@@ -438,9 +473,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 phiFactorDefinitions.forEach(factorDef => {
                     const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
                     if (inputElement) {
-                        const val = parseFloat(inputElement.value);
+                        const valNorm = parseFloat(inputElement.value);
+                        const val = valNorm * 0.25;
                         currentPlanetPhiWeights[factorDef.label] = val;
-                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal * 0.25)) > 1e-9) {
                             hasChanges = true;
                         }
                     }
