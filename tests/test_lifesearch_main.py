@@ -162,7 +162,7 @@ class TestCalculationsPHI:
             {"Solid Surface": 0.25, "Stable Energy": 0.25,
              "Life Compounds": 0.25, "Stable Orbit": 0.25}
         )
-        assert 70 <= phi <= 100
+        assert 50 <= phi <= 80
 
     def test_phi_gas_giant(self):
         """PHI for a gas giant should return a valid score (0–100)"""

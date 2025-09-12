@@ -285,40 +285,46 @@ def calculate_esi_score(planet_data, weights):
         "pl_eqt": weights.get("Habitable Zone", 1.0)
     }
     esi_components = []
-    num_params = 0
-    max_weight = 1.0
+    total_weight = 0.0
 
     for param_key, weight_val in esi_factors_map.items():
         planet_val = planet_data.get(param_key)
         earth_val = earth_params.get(param_key)
-        logger.debug(f"ESI param: {param_key}, Planet val: {planet_val}, Earth val: {earth_val}, Weight: {weight_val}")
+        logger.debug(
+            f"ESI param: {param_key}, Planet val: {planet_val}, Earth val: {earth_val}, Weight: {weight_val}"
+        )
         if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
             try:
                 planet_val_fl = float(planet_val)
                 earth_val_fl = float(earth_val)
                 if (planet_val_fl + earth_val_fl) == 0:
-                    similarity_component = 0.0 # pragma: no cover
+                    similarity_component = 0.0  # pragma: no cover
                 else:
-                    similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
+                    similarity_component = 1.0 - abs(
+                        (planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl)
+                    )
                 if similarity_component < 0:
-                    similarity_component = 0.0 # pragma: no cover
-                # Quando weight_val = 0.0, usar a similaridade real
-                scaled_component = similarity_component if weight_val == 0.0 else (
-                    similarity_component + (1.0 - similarity_component) * (weight_val / max_weight)
-                )
-                esi_components.append(scaled_component)
-                num_params += 1
-                logger.debug(f"ESI scaled component for {param_key}: {scaled_component}, Similarity: {similarity_component}")
-            except (ValueError, TypeError) as e: # pragma: no cover
-                logger.warning(f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}") # pragma: no cover
-        else:
-            logger.debug(f"Skipping ESI param {param_key} due to missing or invalid data: planet_val={planet_val}, earth_val={earth_val}")
+                    similarity_component = 0.0  # pragma: no cover
 
-    if not esi_components or num_params == 0:
+                esi_components.append(similarity_component * weight_val)
+                total_weight += weight_val
+                logger.debug(
+                    f"ESI component for {param_key}: {similarity_component}, Weighted: {similarity_component * weight_val}"
+                )
+            except (ValueError, TypeError) as e:  # pragma: no cover
+                logger.warning(
+                    f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}"
+                )  # pragma: no cover
+        else:
+            logger.debug(
+                f"Skipping ESI param {param_key} due to missing or invalid data: planet_val={planet_val}, earth_val={earth_val}"
+            )
+
+    if not esi_components or total_weight == 0:
         logger.warning("No valid ESI components found.")
         return 0.0, get_color_for_percentage(0.0)
 
-    final_esi = (sum(esi_components) / num_params) * 100 if num_params > 0 else 0.0
+    final_esi = (sum(esi_components) / total_weight) * 100
     logger.info(f"Final ESI for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
     return round(final_esi, 2), get_color_for_percentage(final_esi)
 
@@ -418,25 +424,26 @@ def calculate_phi_score(planet_data, phi_weights):
     logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
 
     phi_components = []
-    num_params = 0
+    total_weight = 0.0
     max_weight = 0.25
 
     for factor_name, weight_val in phi_weights.items():
         factor_score = factors_present_scores.get(factor_name, 0.0)
-        logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
-        # Quando weight_val = 0.0, usar o score real; quando weight_val = 0.25, interpolar para 1.0
-        scaled_component = factor_score if weight_val == 0.0 else (
-            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
+        logger.debug(
+            f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}"
         )
-        phi_components.append(scaled_component)
-        num_params += 1
-        logger.debug(f"PHI scaled component for {factor_name}: {scaled_component}, Original score: {factor_score}")
+        normalized_weight = weight_val / max_weight if max_weight > 0 else 0.0
+        phi_components.append(factor_score * normalized_weight)
+        total_weight += normalized_weight
+        logger.debug(
+            f"PHI component for {factor_name}: {factor_score}, Weighted: {factor_score * normalized_weight}"
+        )
 
-    if not phi_components or num_params == 0:
+    if not phi_components or total_weight == 0:
         logger.warning("No valid PHI components found.")
         return 0.0, get_color_for_percentage(0.0)
 
-    final_phi = (sum(phi_components) / num_params) * 100 if num_params > 0 else 0.0
+    final_phi = (sum(phi_components) / total_weight) * 100
     final_phi = max(0.0, min(final_phi, 100.0))
 
     logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
