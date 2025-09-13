@@ -88,6 +88,34 @@ DEFAULT_PHI_WEIGHTS = {
 ZERO_HABITABILITY_WEIGHTS = {k: 0.0 for k in DEFAULT_HABITABILITY_WEIGHTS}
 ZERO_PHI_WEIGHTS = {k: 0.0 for k in DEFAULT_PHI_WEIGHTS}
 
+# Mapping of possible incoming weight keys to their canonical names
+WEIGHT_KEY_MAP = {
+    "habitable_zone": "Habitable Zone",
+    "size": "Size",
+    "density": "Density",
+    "solid_surface": "Solid Surface",
+    "stable_energy": "Stable Energy",
+    "life_compounds": "Life Compounds",
+    "stable_orbit": "Stable Orbit",
+}
+
+
+def canonicalize_weight_keys(weight_dict):
+    """Normalize incoming weight keys to canonical form.
+
+    Frontend sliders may send keys in snake_case (e.g., 'habitable_zone').
+    This helper maps such keys to the labels used internally for calculations
+    (e.g., 'Habitable Zone'). Any keys already in canonical form are left
+    untouched.
+    """
+
+    canonical = {}
+    for key, value in weight_dict.items():
+        lookup = key.lower().replace(" ", "_")
+        canonical_key = WEIGHT_KEY_MAP.get(lookup, key)
+        canonical[canonical_key] = value
+    return canonical
+
 from flask import current_app as app
 
 @routes_bp.app_context_processor
@@ -471,6 +499,14 @@ def get_planet_reference_values():
 
             if use_individual_weights:
                 planet_specific_weights = planet_weights.get(normalized_planet_name, {})
+                planet_specific_weights = {
+                    'habitability': canonicalize_weight_keys(
+                        planet_specific_weights.get('habitability', {})
+                    ),
+                    'phi': canonicalize_weight_keys(
+                        planet_specific_weights.get('phi', {})
+                    ),
+                }
                 base_hab.update(planet_specific_weights.get('habitability', {}))
                 base_phi.update(planet_specific_weights.get('phi', {}))
                 logger.info(
@@ -941,8 +977,8 @@ def save_planet_weights():
     existing_weights = session.get('planet_weights', {})
 
     for planet_name, weights in normalized_planet_weights.items():
-        hab_weights = weights.get('habitability', {})
-        phi_weights = weights.get('phi', {})
+        hab_weights = canonicalize_weight_keys(weights.get('habitability', {}))
+        phi_weights = canonicalize_weight_keys(weights.get('phi', {}))
 
         planet_entry = existing_weights.get(planet_name, {})
         existing_hab = planet_entry.get('habitability', {})
