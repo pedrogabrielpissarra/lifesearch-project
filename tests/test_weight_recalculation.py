@@ -87,7 +87,14 @@ def test_reference_values_merge_initial_weights(client, monkeypatch):
                'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.36}}}}
     resp = client.post('/api/planets/reference_values', json=payload).get_json()
     esi_val = resp['planets'][0]['esi']
-    expected_esi, _ = calculate_esi_score(planet_data, {'Habitable Zone': 0.36})
+    expected_esi, _ = calculate_esi_score(
+        planet_data,
+        {
+            'Habitable Zone': 0.36,
+            'Size': initial_hab_weights['Size'],
+            'Density': initial_hab_weights['Density'],
+        }
+    )
     assert pytest.approx(expected_esi, rel=1e-6) == esi_val
 
 
