@@ -248,3 +248,29 @@ def test_reposition_instead_of_accumulate(client, monkeypatch):
 
     assert phi_high > phi_low
     assert phi_high <= 100.0
+
+
+def test_reduce_weight_recalculates_instead_of_accumulating(client, monkeypatch):
+    norm = _setup_reference(client, monkeypatch)
+
+    client.post('/api/save-planet-weights', json={
+        'use_individual_weights': True,
+        'planet_weights': {norm: {'habitability': {'Density': 0.97}}}
+    })
+    resp1 = client.post('/api/planets/reference_values', json={
+        'use_individual_weights': True,
+        'planet_weights': {norm: {'habitability': {'Density': 0.97}}}
+    }).get_json()
+    first_esi = resp1['planets'][0]['esi']
+
+    client.post('/api/save-planet-weights', json={
+        'use_individual_weights': True,
+        'planet_weights': {norm: {'habitability': {'Density': 0.50}}}
+    })
+    resp2 = client.post('/api/planets/reference_values', json={
+        'use_individual_weights': True,
+        'planet_weights': {norm: {'habitability': {'Density': 0.50}}}
+    }).get_json()
+    second_esi = resp2['planets'][0]['esi']
+
+    assert second_esi < first_esi

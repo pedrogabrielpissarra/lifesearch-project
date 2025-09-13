@@ -607,14 +607,12 @@ def results():
         if use_individual_weights and normalized_planet_name in individual_planet_weights_map:
             planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
             logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
-            base_hab = initial_hab_weights.get(normalized_planet_name, global_habitability_weights)
-            merged_hab = base_hab.copy()
-            merged_hab.update(planet_specific_weights_entry.get('habitability', {}))
-            base_phi = initial_phi_weights.get(normalized_planet_name, global_phi_weights)
-            merged_phi = base_phi.copy()
-            merged_phi.update(planet_specific_weights_entry.get('phi', {}))
-            current_hab_weights = merged_hab
-            current_phi_weights = merged_phi
+            base_hab = zero_habitability_weights.copy()
+            base_hab.update(planet_specific_weights_entry.get('habitability', {}))
+            base_phi = zero_phi_weights.copy()
+            base_phi.update(planet_specific_weights_entry.get('phi', {}))
+            current_hab_weights = base_hab
+            current_phi_weights = base_phi
         else:
             logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
             current_hab_weights = global_habitability_weights
