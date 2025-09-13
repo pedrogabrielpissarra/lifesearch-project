@@ -280,9 +280,9 @@ def calculate_esi_score(planet_data, weights):
     logger.debug(f"Calculating ESI for planet: {planet_data.get('pl_name', 'Unknown')}")
     earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
     esi_factors_map = {
-        "pl_rade": weights.get("Size", 1.0),
-        "pl_dens": weights.get("Density", 1.0),
-        "pl_eqt": weights.get("Habitable Zone", 1.0)
+        "pl_rade": weights.get("Size", 0.0),
+        "pl_dens": weights.get("Density", 0.0),
+        "pl_eqt": weights.get("Habitable Zone", 0.0)
     }
     esi_components = []
     num_params = 0
@@ -421,10 +421,9 @@ def calculate_phi_score(planet_data, phi_weights):
     num_params = 0
     max_weight = 0.25
 
-    for factor_name, weight_val in phi_weights.items():
-        factor_score = factors_present_scores.get(factor_name, 0.0)
+    for factor_name, factor_score in factors_present_scores.items():
+        weight_val = phi_weights.get(factor_name, 0.0)
         logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
-        # Quando weight_val = 0.0, usar o score real; quando weight_val = 0.25, interpolar para 1.0
         scaled_component = factor_score if weight_val == 0.0 else (
             factor_score + (1.0 - factor_score) * (weight_val / max_weight)
         )

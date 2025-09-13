@@ -1,0 +1,93 @@
+import pytest
+from lifesearch.lifesearch_main import calculate_esi_score, calculate_phi_score
+from app import create_app
+from lifesearch.data import normalize_name
+import pandas as pd
+
+@pytest.fixture
+def client():
+    app = create_app()
+    app.config.update({"TESTING": True, "SECRET_KEY": "test", "WTF_CSRF_ENABLED": False})
+    with app.test_client() as client:
+        yield client
+
+planet_data = {
+    'pl_name': 'Kepler-276 c',
+    'pl_rade': 2.9,
+    'pl_dens': 0.889,
+    'pl_eqt': 562.0,
+    'classification': 'Neptunian',
+    'st_spectype': 'G',
+    'st_age': 5.0,
+    'pl_orbeccen': 0.1,
+}
+
+initial_hab_weights = {
+    'Habitable Zone': 0.6234718826405867,
+    'Size': 0.5128205128205128,
+    'Density': 0.27812499999999996,
+}
+
+initial_phi_weights = {
+    'Solid Surface': 0.0,
+    'Stable Energy': 0.0,
+    'Life Compounds': 0.0,
+    'Stable Orbit': 0.050625,
+}
+
+
+def test_esi_decreases_when_weight_decreases():
+    base_esi, _ = calculate_esi_score(planet_data, initial_hab_weights)
+    new_weights = initial_hab_weights.copy()
+    new_weights['Habitable Zone'] = 0.36
+    new_esi, _ = calculate_esi_score(planet_data, new_weights)
+    assert new_esi < base_esi
+
+
+def test_esi_returns_to_default_when_weights_reset():
+    base_esi, _ = calculate_esi_score(planet_data, initial_hab_weights)
+    zero_weights = {k: 0.0 for k in initial_hab_weights}
+    zero_esi, _ = calculate_esi_score(planet_data, zero_weights)
+    reset_esi, _ = calculate_esi_score(planet_data, initial_hab_weights)
+    assert pytest.approx(base_esi, rel=1e-6) == reset_esi
+    assert zero_esi < base_esi
+
+
+def test_phi_increases_proportionally():
+    base_phi, _ = calculate_phi_score(planet_data, initial_phi_weights)
+    increased = initial_phi_weights.copy()
+    increased['Stable Orbit'] = 0.06
+    new_phi, _ = calculate_phi_score(planet_data, increased)
+    base_esi, _ = calculate_esi_score(planet_data, initial_hab_weights)
+    assert base_phi < new_phi < 50.0
+    esi_after, _ = calculate_esi_score(planet_data, initial_hab_weights)
+    assert pytest.approx(base_esi, rel=1e-6) == esi_after
+
+
+def test_reference_values_merge_initial_weights(client, monkeypatch):
+    def mock_process(name, data, weights):
+        esi, _ = calculate_esi_score(planet_data, weights.get('habitability', {}))
+        phi, _ = calculate_phi_score(planet_data, weights.get('phi', {}))
+        return {'planet_data_dict': {'pl_name': name, 'classification': planet_data['classification']},
+                'scores_for_report': {'ESI': (esi, ''), 'PHI': (phi, '')}}
+
+    monkeypatch.setattr('app.routes.process_planet_data', mock_process)
+    monkeypatch.setattr('app.routes.fetch_exoplanet_data_api', lambda name: {'pl_name': name})
+    monkeypatch.setattr('app.routes.merge_data_sources', lambda api, hwc, hz, norm: api)
+    monkeypatch.setattr('app.routes.load_hwc_catalog', lambda path: pd.DataFrame())
+    monkeypatch.setattr('app.routes.load_hzgallery_catalog', lambda path: pd.DataFrame())
+
+    norm = normalize_name('Kepler-276 c')
+    client.post('/api/save-planets-to-session', json={'planet_names': ['Kepler-276 c']})
+    with client.session_transaction() as sess:
+        sess['initial_hab_weights'] = {norm: initial_hab_weights}
+        sess['initial_phi_weights'] = {norm: initial_phi_weights}
+
+    payload = {'use_individual_weights': True,
+               'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.36}}}}
+    resp = client.post('/api/planets/reference_values', json=payload).get_json()
+    esi_val = resp['planets'][0]['esi']
+    merged = initial_hab_weights.copy()
+    merged['Habitable Zone'] = 0.36
+    expected_esi, _ = calculate_esi_score(planet_data, merged)
+    assert pytest.approx(expected_esi, rel=1e-6) == esi_val
