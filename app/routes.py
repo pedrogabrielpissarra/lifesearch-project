@@ -450,23 +450,24 @@ def get_planet_reference_values():
         }
 
         base_hab = zero_habitability_weights.copy()
-        base_hab.update(initial_hab_weights.get(normalized_planet_name, {}))
-
         base_phi = zero_phi_weights.copy()
-        base_phi.update(initial_phi_weights.get(normalized_planet_name, {}))
 
-        if session_use_individual:
-            saved_weights = session_planet_weights.get(normalized_planet_name, {})
-            base_hab.update(saved_weights.get('habitability', {}))
-            base_phi.update(saved_weights.get('phi', {}))
+        if session_use_individual or use_individual_weights:
+            base_hab.update(initial_hab_weights.get(normalized_planet_name, {}))
+            base_phi.update(initial_phi_weights.get(normalized_planet_name, {}))
 
-        if use_individual_weights:
-            planet_specific_weights = planet_weights.get(normalized_planet_name, {})
-            base_hab.update(planet_specific_weights.get('habitability', {}))
-            base_phi.update(planet_specific_weights.get('phi', {}))
-            logger.info(
-                f"Using individual weights for {normalized_planet_name}: updates={planet_specific_weights}"
-            )
+            if session_use_individual:
+                saved_weights = session_planet_weights.get(normalized_planet_name, {})
+                base_hab.update(saved_weights.get('habitability', {}))
+                base_phi.update(saved_weights.get('phi', {}))
+
+            if use_individual_weights:
+                planet_specific_weights = planet_weights.get(normalized_planet_name, {})
+                base_hab.update(planet_specific_weights.get('habitability', {}))
+                base_phi.update(planet_specific_weights.get('phi', {}))
+                logger.info(
+                    f"Using individual weights for {normalized_planet_name}: updates={planet_specific_weights}"
+                )
 
         weights["habitability"] = base_hab
         weights["phi"] = base_phi

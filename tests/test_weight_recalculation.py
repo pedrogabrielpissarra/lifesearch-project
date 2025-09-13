@@ -281,3 +281,77 @@ def test_reduce_weight_recalculates_instead_of_accumulating(client, monkeypatch)
     second_esi = resp2['planets'][0]['esi']
 
     assert second_esi < first_esi
+
+
+def test_save_without_changes_keeps_reference_value(client, monkeypatch):
+    norm = _setup_reference(client, monkeypatch)
+
+    baseline_resp = client.post(
+        '/api/planets/reference_values',
+        json={'use_individual_weights': False, 'planet_weights': {}}
+    ).get_json()
+    esi_initial = baseline_resp['planets'][0]['esi']
+
+    client.post('/api/save-planet-weights', json={'use_individual_weights': False, 'planet_weights': {}})
+
+    after_resp = client.post(
+        '/api/planets/reference_values',
+        json={'use_individual_weights': False, 'planet_weights': {}}
+    ).get_json()
+    esi_after = after_resp['planets'][0]['esi']
+
+    assert pytest.approx(esi_initial, rel=1e-6) == esi_after
+
+
+def test_small_increase_in_habitable_zone_increases_esi_slightly(client, monkeypatch):
+    norm = _setup_reference(client, monkeypatch)
+
+    base_resp = client.post(
+        '/api/planets/reference_values',
+        json={'use_individual_weights': True,
+              'planet_weights': {norm: {'habitability': {'Habitable Zone': initial_hab_weights['Habitable Zone']}}}}
+    ).get_json()
+    base_esi = base_resp['planets'][0]['esi']
+
+    client.post('/api/save-planet-weights', json={
+        'use_individual_weights': True,
+        'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.64}}}
+    })
+
+    resp = client.post(
+        '/api/planets/reference_values',
+        json={'use_individual_weights': True,
+              'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.64}}}}
+    ).get_json()
+    esi_after = resp['planets'][0]['esi']
+
+    assert esi_after > base_esi
+    assert 0.0 <= esi_after <= 100.0
+    assert esi_after - base_esi < 1.0
+
+
+def test_small_decrease_in_habitable_zone_decreases_esi_slightly(client, monkeypatch):
+    norm = _setup_reference(client, monkeypatch)
+
+    base_resp = client.post(
+        '/api/planets/reference_values',
+        json={'use_individual_weights': True,
+              'planet_weights': {norm: {'habitability': {'Habitable Zone': initial_hab_weights['Habitable Zone']}}}}
+    ).get_json()
+    base_esi = base_resp['planets'][0]['esi']
+
+    client.post('/api/save-planet-weights', json={
+        'use_individual_weights': True,
+        'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.6069437652811734}}}
+    })
+
+    resp = client.post(
+        '/api/planets/reference_values',
+        json={'use_individual_weights': True,
+              'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.6069437652811734}}}}
+    ).get_json()
+    esi_after = resp['planets'][0]['esi']
+
+    assert esi_after < base_esi
+    assert 0.0 <= esi_after <= 100.0
+    assert base_esi - esi_after < 1.0
