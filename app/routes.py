@@ -447,27 +447,18 @@ def get_planet_reference_values():
             "phi": global_phi_weights,
         }
         if use_individual_weights:
-            session_planet_weights = session.get("planet_weights", {}).get(normalized_planet_name, {})
             planet_specific_weights = planet_weights.get(normalized_planet_name, {})
 
-            base_hab = session_planet_weights.get(
-                "habitability",
-                initial_hab_weights.get(normalized_planet_name, global_habitability_weights),
-            )
-            merged_hab = base_hab.copy()
-            merged_hab.update(planet_specific_weights.get("habitability", {}))
+            base_hab = zero_habitability_weights.copy()
+            base_hab.update(planet_specific_weights.get("habitability", {}))
 
-            base_phi = session_planet_weights.get(
-                "phi",
-                initial_phi_weights.get(normalized_planet_name, global_phi_weights),
-            )
-            merged_phi = base_phi.copy()
-            merged_phi.update(planet_specific_weights.get("phi", {}))
+            base_phi = zero_phi_weights.copy()
+            base_phi.update(planet_specific_weights.get("phi", {}))
 
-            weights["habitability"] = merged_hab
-            weights["phi"] = merged_phi
+            weights["habitability"] = base_hab
+            weights["phi"] = base_phi
             logger.info(
-                f"Using individual weights for {normalized_planet_name}: base={session_planet_weights}, updates={planet_specific_weights}"
+                f"Using individual weights for {normalized_planet_name}: updates={planet_specific_weights}"
             )
         
         processed_result = process_planet_data(
@@ -949,23 +940,24 @@ def save_planet_weights():
             if filtered_phi:
                 filtered_planet_weights[planet_name]['phi'] = filtered_phi
 
-    if use_individual_weights and filtered_planet_weights:
-        existing_weights = session.get('planet_weights', {})
-        for planet_name, weight_dict in filtered_planet_weights.items():
-            planet_entry = existing_weights.get(planet_name, {})
-            for category, values in weight_dict.items():
-                current_vals = planet_entry.get(category, {})
-                current_vals.update(values)
-                planet_entry[category] = current_vals
-            existing_weights[planet_name] = planet_entry
+    existing_weights = session.get('planet_weights', {})
+    # Replace or remove planet entries based on incoming data
+    for planet_name in normalized_planet_weights.keys():
+        if planet_name in filtered_planet_weights:
+            existing_weights[planet_name] = filtered_planet_weights[planet_name]
+        else:
+            existing_weights.pop(planet_name, None)
+
+    if use_individual_weights and existing_weights:
         session['planet_weights'] = existing_weights
         session['use_individual_weights'] = True
-        session.modified = True
-        logger.info(f"API save-planet-weights - Saved to session: planet_weights={session['planet_weights']}")
-        logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
     else:
         session.pop('planet_weights', None)
         session['use_individual_weights'] = False
+
+    session.modified = True
+    logger.info(f"API save-planet-weights - Saved to session: planet_weights={session.get('planet_weights')}")
+    logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
 
     return jsonify({'status': 'success', 'saved_weights': filtered_planet_weights})
 
