@@ -91,3 +91,83 @@ def test_reference_values_merge_initial_weights(client, monkeypatch):
     merged['Habitable Zone'] = 0.36
     expected_esi, _ = calculate_esi_score(planet_data, merged)
     assert pytest.approx(expected_esi, rel=1e-6) == esi_val
+
+
+def test_esi_recalculation_resets_previous_value(client, monkeypatch):
+    def mock_process(name, data, weights):
+        esi, _ = calculate_esi_score(planet_data, weights.get('habitability', {}))
+        phi, _ = calculate_phi_score(planet_data, weights.get('phi', {}))
+        return {'planet_data_dict': {'pl_name': name, 'classification': planet_data['classification']},
+                'scores_for_report': {'ESI': (esi, ''), 'PHI': (phi, '')}}
+
+    monkeypatch.setattr('app.routes.process_planet_data', mock_process)
+    monkeypatch.setattr('app.routes.fetch_exoplanet_data_api', lambda name: {'pl_name': name})
+    monkeypatch.setattr('app.routes.merge_data_sources', lambda api, hwc, hz, norm: api)
+    monkeypatch.setattr('app.routes.load_hwc_catalog', lambda path: pd.DataFrame())
+    monkeypatch.setattr('app.routes.load_hzgallery_catalog', lambda path: pd.DataFrame())
+
+    norm = normalize_name('Kepler-276 c')
+    client.post('/api/save-planets-to-session', json={'planet_names': ['Kepler-276 c']})
+    with client.session_transaction() as sess:
+        sess['initial_hab_weights'] = {norm: initial_hab_weights}
+        sess['initial_phi_weights'] = {norm: initial_phi_weights}
+
+    # Save baseline zero weights
+    zero_payload = {'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {k: 0.0 for k in initial_hab_weights}}}}
+    client.post('/api/save-planet-weights', json=zero_payload)
+
+    # First update to 0.5
+    client.post('/api/save-planet-weights', json={'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.5}}}})
+    resp = client.post('/api/planets/reference_values', json={'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.5}}}}).get_json()
+    esi_first = resp['planets'][0]['esi']
+    expected_first, _ = calculate_esi_score(planet_data, {'Habitable Zone': 0.5, 'Size': 0.0, 'Density': 0.0})
+    assert pytest.approx(expected_first, rel=1e-6) == esi_first
+
+    # Second update to 0.3 should override previous value
+    client.post('/api/save-planet-weights', json={'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.3}}}})
+    resp = client.post('/api/planets/reference_values', json={'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.3}}}}).get_json()
+    esi_second = resp['planets'][0]['esi']
+    expected_second, _ = calculate_esi_score(planet_data, {'Habitable Zone': 0.3, 'Size': 0.0, 'Density': 0.0})
+    assert pytest.approx(expected_second, rel=1e-6) == esi_second
+    assert esi_second < esi_first
+
+
+def test_esi_restores_correct_value_without_manual_reset(client, monkeypatch):
+    def mock_process(name, data, weights):
+        esi, _ = calculate_esi_score(planet_data, weights.get('habitability', {}))
+        phi, _ = calculate_phi_score(planet_data, weights.get('phi', {}))
+        return {'planet_data_dict': {'pl_name': name, 'classification': planet_data['classification']},
+                'scores_for_report': {'ESI': (esi, ''), 'PHI': (phi, '')}}
+
+    monkeypatch.setattr('app.routes.process_planet_data', mock_process)
+    monkeypatch.setattr('app.routes.fetch_exoplanet_data_api', lambda name: {'pl_name': name})
+    monkeypatch.setattr('app.routes.merge_data_sources', lambda api, hwc, hz, norm: api)
+    monkeypatch.setattr('app.routes.load_hwc_catalog', lambda path: pd.DataFrame())
+    monkeypatch.setattr('app.routes.load_hzgallery_catalog', lambda path: pd.DataFrame())
+
+    norm = normalize_name('Kepler-276 c')
+    client.post('/api/save-planets-to-session', json={'planet_names': ['Kepler-276 c']})
+    with client.session_transaction() as sess:
+        sess['initial_hab_weights'] = {norm: initial_hab_weights}
+        sess['initial_phi_weights'] = {norm: initial_phi_weights}
+
+    zero_payload = {'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {k: 0.0 for k in initial_hab_weights}}}}
+    client.post('/api/save-planet-weights', json=zero_payload)
+
+    client.post('/api/save-planet-weights', json={'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.5}}}})
+
+    # Now set Habitable Zone back to 0 without resending other sliders
+    client.post('/api/save-planet-weights', json={'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.0}}}})
+    resp = client.post('/api/planets/reference_values', json={'use_individual_weights': True,
+                    'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.0}}}}).get_json()
+    esi_final = resp['planets'][0]['esi']
+    base_expected, _ = calculate_esi_score(planet_data, {'Habitable Zone': 0.0, 'Size': 0.0, 'Density': 0.0})
+    assert pytest.approx(base_expected, rel=1e-6) == esi_final

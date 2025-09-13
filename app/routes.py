@@ -444,19 +444,31 @@ def get_planet_reference_values():
         
         weights = {
             "habitability": global_habitability_weights,
-            "phi": global_phi_weights
+            "phi": global_phi_weights,
         }
-        if use_individual_weights and normalized_planet_name in planet_weights:
+        if use_individual_weights:
+            session_planet_weights = session.get("planet_weights", {}).get(normalized_planet_name, {})
             planet_specific_weights = planet_weights.get(normalized_planet_name, {})
-            base_hab = initial_hab_weights.get(normalized_planet_name, global_habitability_weights)
+
+            base_hab = session_planet_weights.get(
+                "habitability",
+                initial_hab_weights.get(normalized_planet_name, global_habitability_weights),
+            )
             merged_hab = base_hab.copy()
             merged_hab.update(planet_specific_weights.get("habitability", {}))
-            base_phi = initial_phi_weights.get(normalized_planet_name, global_phi_weights)
+
+            base_phi = session_planet_weights.get(
+                "phi",
+                initial_phi_weights.get(normalized_planet_name, global_phi_weights),
+            )
             merged_phi = base_phi.copy()
             merged_phi.update(planet_specific_weights.get("phi", {}))
+
             weights["habitability"] = merged_hab
             weights["phi"] = merged_phi
-            logger.info(f"Using individual weights for {normalized_planet_name}: {planet_specific_weights}")
+            logger.info(
+                f"Using individual weights for {normalized_planet_name}: base={session_planet_weights}, updates={planet_specific_weights}"
+            )
         
         processed_result = process_planet_data(
             normalized_planet_name,
