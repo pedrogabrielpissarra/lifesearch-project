@@ -407,8 +407,16 @@ def get_planet_reference_values():
     if request.method == "POST":
         data = request.json or {}
         use_individual_weights = data.get("use_individual_weights", False)
-        planet_weights = data.get("planet_weights", {})
-        logger.info(f"API reference_values - POST data: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
+        raw_planet_weights = data.get("planet_weights", {})
+        # Normalize incoming planet names so lookups match stored session keys
+        planet_weights = {
+            normalize_name(name): weights for name, weights in raw_planet_weights.items()
+        }
+        logger.info(
+            "API reference_values - POST data: use_individual_weights=%s, planet_weights=%s",
+            use_individual_weights,
+            planet_weights,
+        )
         if use_individual_weights and not planet_weights:
             use_individual_weights = False
     
