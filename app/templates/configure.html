@@ -85,7 +85,7 @@ const DEFAULT_HAB_WEIGHTS = JSON.parse('{{ default_hab_weights_json|safe }}');
 const DEFAULT_PHI_WEIGHTS = JSON.parse('{{ default_phi_weights_json|safe }}');
 const CURRENT_GLOBAL_HAB_WEIGHTS = JSON.parse('{{ current_global_hab_weights_json|safe }}');
 const CURRENT_GLOBAL_PHI_WEIGHTS = JSON.parse('{{ current_global_phi_weights_json|safe }}');
-const CURRENT_PLANET_SPECIFIC_WEIGHTS = JSON.parse('{{ current_planet_specific_weights_json|safe }}');
+let CURRENT_PLANET_SPECIFIC_WEIGHTS = JSON.parse('{{ current_planet_specific_weights_json|safe }}');
 const INITIAL_HAB_WEIGHTS = JSON.parse('{{ initial_hab_weights_json|safe }}');
 const INITIAL_PHI_WEIGHTS = JSON.parse('{{ initial_phi_weights_json|safe }}');
 const USE_INDIVIDUAL_WEIGHTS_ON_LOAD = {{ use_individual_weights_val|lower }};
@@ -105,6 +105,10 @@ document.addEventListener('DOMContentLoaded', function() {
         'life_compounds': 'How important are compounds necessary for life (PHI).',
         'stable_orbit': 'How important is a stable orbit (PHI).'
     };
+
+    if (!CURRENT_PLANET_SPECIFIC_WEIGHTS || typeof CURRENT_PLANET_SPECIFIC_WEIGHTS !== 'object') {
+        CURRENT_PLANET_SPECIFIC_WEIGHTS = {};
+    }
 
     const habFactorDefinitions = [
         { key: 'habitable_zone', label: 'Habitable Zone', defaultVal: DEFAULT_HAB_WEIGHTS['Habitable Zone'] || 1.0, min: 0, max: 1, step: 0.01 },
@@ -189,6 +193,43 @@ document.addEventListener('DOMContentLoaded', function() {
 
         console.log(`Using baseline value for ${planetNormalizedName}, ${displayNameKey}: 0.0`);
         return 0.0;
+    }
+
+    function buildDeltaPayload(actualWeightsMap) {
+        const payload = {};
+        Object.entries(actualWeightsMap || {}).forEach(([planetName, categories]) => {
+            const deltaEntry = {};
+            if (categories?.habitability) {
+                const deltaHab = {};
+                Object.entries(categories.habitability).forEach(([label, value]) => {
+                    const reference = getReferenceWeight(planetName, 'hab', label);
+                    const numeric = Number(value);
+                    if (Number.isFinite(numeric)) {
+                        const delta = numeric - reference;
+                        if (Math.abs(delta) > 1e-9) {
+                            deltaHab[label] = delta;
+                        }
+                    }
+                });
+                deltaEntry.habitability = deltaHab;
+            }
+            if (categories?.phi) {
+                const deltaPhi = {};
+                Object.entries(categories.phi).forEach(([label, value]) => {
+                    const reference = getReferenceWeight(planetName, 'phi', label);
+                    const numeric = Number(value);
+                    if (Number.isFinite(numeric)) {
+                        const delta = numeric - reference;
+                        if (Math.abs(delta) > 1e-9) {
+                            deltaPhi[label] = delta;
+                        }
+                    }
+                });
+                deltaEntry.phi = deltaPhi;
+            }
+            payload[planetName] = deltaEntry;
+        });
+        return payload;
     }
 
     async function loadPlanetWeightsUI() {
@@ -340,9 +381,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     };
                 }
 
+                const deltaWeights = buildDeltaPayload(collectedWeights);
+                const shouldUseIndividual = useIndividual && Object.keys(collectedWeights).length > 0;
+
                 console.log(`Saving weights for ${planetDisplayName}:`, {
-                    use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
-                    planet_weights: collectedWeights
+                    use_individual_weights: shouldUseIndividual,
+                    planet_weights: deltaWeights
                 });
 
                 try {
@@ -350,19 +394,21 @@ document.addEventListener('DOMContentLoaded', function() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
-                            planet_weights: collectedWeights
+                            use_individual_weights: shouldUseIndividual,
+                            weights_are_deltas: true,
+                            planet_weights: deltaWeights
                         })
                     });
                     if (!response.ok) throw new Error(`Failed to save weights for ${planetDisplayName}: ${response.status}`);
                     const result = await response.json();
                     if (result.status === 'success') {
                         alert(`Weights for ${planetDisplayName} saved successfully!`);
-                        if (result.saved_weights && result.saved_weights[planetNormalizedName]) {
-                            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] = result.saved_weights[planetNormalizedName];
-                        } else {
-                            delete CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName];
+                        if (!CURRENT_PLANET_SPECIFIC_WEIGHTS || typeof CURRENT_PLANET_SPECIFIC_WEIGHTS !== 'object') {
+                            CURRENT_PLANET_SPECIFIC_WEIGHTS = {};
                         }
+                        Object.entries(result.saved_weights || {}).forEach(([normalizedName, categories]) => {
+                            CURRENT_PLANET_SPECIFIC_WEIGHTS[normalizedName] = categories;
+                        });
                         await loadReferenceValues();
                     } else {
                         alert(`Error saving weights for ${planetDisplayName}.`);
@@ -466,37 +512,46 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 });
 
-                if (hasChanges) {
-                    collectedWeights[planetNormalizedName] = {
-                        habitability: currentPlanetHabWeights,
-                        phi: currentPlanetPhiWeights
-                    };
+            if (hasChanges) {
+                collectedWeights[planetNormalizedName] = {
+                    habitability: currentPlanetHabWeights,
+                    phi: currentPlanetPhiWeights
+                };
+            }
+        });
+
+        const deltaWeights = buildDeltaPayload(collectedWeights);
+        const shouldUseIndividual = useIndividual && Object.keys(collectedWeights).length > 0;
+
+        console.log('Sending weights to API:', {
+            use_individual_weights: shouldUseIndividual,
+            planet_weights: deltaWeights
+        });
+
+        try {
+            const response = await fetch('/api/save-planet-weights', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    use_individual_weights: shouldUseIndividual,
+                    weights_are_deltas: true,
+                    planet_weights: deltaWeights
+                })
+            });
+            if (!response.ok) throw new Error(`Failed to save weights: ${response.status}`);
+            const result = await response.json();
+            if (result.status === 'success') {
+                alert('Individual planet weights saved successfully!');
+                if (!CURRENT_PLANET_SPECIFIC_WEIGHTS || typeof CURRENT_PLANET_SPECIFIC_WEIGHTS !== 'object') {
+                    CURRENT_PLANET_SPECIFIC_WEIGHTS = {};
                 }
-            });
-
-            console.log('Sending weights to API:', {
-                use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
-                planet_weights: collectedWeights
-            });
-
-            try {
-                const response = await fetch('/api/save-planet-weights', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
-                        planet_weights: collectedWeights
-                    })
+                Object.entries(result.saved_weights || {}).forEach(([normalizedName, categories]) => {
+                    CURRENT_PLANET_SPECIFIC_WEIGHTS[normalizedName] = categories;
                 });
-                if (!response.ok) throw new Error(`Failed to save weights: ${response.status}`);
-                const result = await response.json();
-                if (result.status === 'success') {
-                    alert('Individual planet weights saved successfully!');
-                    CURRENT_PLANET_SPECIFIC_WEIGHTS = result.saved_weights || {};
-                    await loadReferenceValues();
-                } else {
-                    alert('Error saving weights.');
-                }
+                await loadReferenceValues();
+            } else {
+                alert('Error saving weights.');
+            }
             } catch (error) {
                 console.error('Error saving planet weights:', error);
                 alert('Error saving weights: ' + error.message);
@@ -509,7 +564,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const useIndividual = useIndividualWeightsCheckbox.checked;
             const payload = {
                 use_individual_weights: useIndividual,
-                planet_weights: useIndividual ? CURRENT_PLANET_SPECIFIC_WEIGHTS : {}
+                weights_are_deltas: true,
+                planet_weights: useIndividual ? buildDeltaPayload(CURRENT_PLANET_SPECIFIC_WEIGHTS) : {}
             };
             console.log('Sending reference values request:', payload);
 
