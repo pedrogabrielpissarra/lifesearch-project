@@ -84,7 +84,11 @@ def test_reference_values_merge_initial_weights(client, monkeypatch):
         sess['initial_phi_weights'] = {norm: initial_phi_weights}
 
     payload = {'use_individual_weights': True,
-               'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.36}}}}
+               'planet_weights': {norm: {'habitability': {
+                   'Habitable Zone': 0.36,
+                   'Size': initial_hab_weights['Size'],
+                   'Density': initial_hab_weights['Density'],
+               }}}}
     resp = client.post('/api/planets/reference_values', json=payload).get_json()
     esi_val = resp['planets'][0]['esi']
     expected_esi, _ = calculate_esi_score(

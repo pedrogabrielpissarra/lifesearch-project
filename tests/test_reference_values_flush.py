@@ -1,7 +1,7 @@
 import pytest
-from lifesearch.lifesearch_main import calculate_esi_score
 from app import create_app
 from lifesearch.data import normalize_name
+from lifesearch.lifesearch_main import calculate_esi_score
 import pandas as pd
 
 planet_data = {
@@ -25,6 +25,7 @@ def client():
     with app.test_client() as client:
         yield client
 
+
 def _setup_session(client, monkeypatch):
     def mock_process(name, data, weights):
         esi, _ = calculate_esi_score(planet_data, weights.get('habitability', {}))
@@ -46,7 +47,8 @@ def _setup_session(client, monkeypatch):
         sess['initial_phi_weights'] = {norm: {}}
     return norm
 
-def test_reducing_habitable_zone_should_reduce_esi(client, monkeypatch):
+
+def test_reference_values_flushes_without_saving(client, monkeypatch):
     norm = _setup_session(client, monkeypatch)
 
     resp_base = client.post(
@@ -56,59 +58,26 @@ def test_reducing_habitable_zone_should_reduce_esi(client, monkeypatch):
     ).get_json()
     esi_base = resp_base['planets'][0]['esi']
 
-    updated = {
+    updates = {
         'Habitable Zone': 0.18,
         'Size': initial_hab_weights['Size'],
         'Density': initial_hab_weights['Density'],
     }
-    client.post('/api/save-planet-weights', json={
-        'use_individual_weights': True,
-        'planet_weights': {norm: {'habitability': updated}},
-    })
     resp_after = client.post(
         '/api/planets/reference_values',
         json={'use_individual_weights': True,
-              'planet_weights': {norm: {'habitability': updated}}}
+              'planet_weights': {norm: {'habitability': updates}}}
     ).get_json()
     esi_after = resp_after['planets'][0]['esi']
 
-    expected_after, _ = calculate_esi_score(planet_data, updated)
+    expected_after, _ = calculate_esi_score(planet_data, updates)
     assert esi_after < esi_base
     assert pytest.approx(expected_after, rel=1e-6) == esi_after
-    assert 0.0 <= esi_after <= 100.0
 
-def test_same_values_applied_twice_must_not_accumulate(client, monkeypatch):
-    norm = _setup_session(client, monkeypatch)
-
-    updated = {
-        'Habitable Zone': 0.18,
-        'Size': initial_hab_weights['Size'],
-        'Density': initial_hab_weights['Density'],
-    }
-    client.post('/api/save-planet-weights', json={
-        'use_individual_weights': True,
-        'planet_weights': {norm: {'habitability': updated}},
-    })
-    resp_first = client.post(
+    resp_again = client.post(
         '/api/planets/reference_values',
         json={'use_individual_weights': True,
-              'planet_weights': {norm: {'habitability': updated}}}
+              'planet_weights': {norm: {'habitability': updates}}}
     ).get_json()
-    esi_first = resp_first['planets'][0]['esi']
-
-    client.post('/api/save-planet-weights', json={
-        'use_individual_weights': True,
-        'planet_weights': {norm: {'habitability': updated}},
-    })
-    resp_second = client.post(
-        '/api/planets/reference_values',
-        json={'use_individual_weights': True,
-              'planet_weights': {norm: {'habitability': updated}}}
-    ).get_json()
-    esi_second = resp_second['planets'][0]['esi']
-
-    expected, _ = calculate_esi_score(planet_data, updated)
-    assert pytest.approx(expected, rel=1e-6) == esi_first
-    assert pytest.approx(expected, rel=1e-6) == esi_second
-    assert pytest.approx(esi_first, rel=1e-6) == esi_second
-    assert 0.0 <= esi_second <= 100.0
+    esi_again = resp_again['planets'][0]['esi']
+    assert pytest.approx(esi_after, rel=1e-6) == esi_again

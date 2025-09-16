@@ -485,36 +485,32 @@ def get_planet_reference_values():
             "phi": global_phi_weights.copy(),
         }
 
-        base_hab = zero_habitability_weights.copy()
-        base_phi = zero_phi_weights.copy()
+        base_hab = initial_hab_weights.get(normalized_planet_name, {}).copy()
+        base_phi = initial_phi_weights.get(normalized_planet_name, {}).copy()
 
-        if session_use_individual or use_individual_weights:
-            base_hab.update(initial_hab_weights.get(normalized_planet_name, {}))
-            base_phi.update(initial_phi_weights.get(normalized_planet_name, {}))
+        if session_use_individual:
+            saved_weights = session_planet_weights.get(normalized_planet_name, {})
+            base_hab.update(saved_weights.get('habitability', {}))
+            base_phi.update(saved_weights.get('phi', {}))
 
-            if session_use_individual:
-                saved_weights = session_planet_weights.get(normalized_planet_name, {})
-                base_hab.update(saved_weights.get('habitability', {}))
-                base_phi.update(saved_weights.get('phi', {}))
+        if use_individual_weights:
+            planet_specific_weights = planet_weights.get(normalized_planet_name, {})
+            hab_override = canonicalize_weight_keys(
+                planet_specific_weights.get('habitability', {})
+            )
+            phi_override = canonicalize_weight_keys(
+                planet_specific_weights.get('phi', {})
+            )
+            if hab_override:
+                base_hab = hab_override
+            if phi_override:
+                base_phi = phi_override
+            logger.info(
+                f"Using individual weights for {normalized_planet_name}: updates={{'habitability': hab_override, 'phi': phi_override}}"
+            )
 
-            if use_individual_weights:
-                planet_specific_weights = planet_weights.get(normalized_planet_name, {})
-                planet_specific_weights = {
-                    'habitability': canonicalize_weight_keys(
-                        planet_specific_weights.get('habitability', {})
-                    ),
-                    'phi': canonicalize_weight_keys(
-                        planet_specific_weights.get('phi', {})
-                    ),
-                }
-                base_hab.update(planet_specific_weights.get('habitability', {}))
-                base_phi.update(planet_specific_weights.get('phi', {}))
-                logger.info(
-                    f"Using individual weights for {normalized_planet_name}: updates={planet_specific_weights}"
-                )
-
-        weights["habitability"] = base_hab
-        weights["phi"] = base_phi
+        weights["habitability"] = base_hab or zero_habitability_weights.copy()
+        weights["phi"] = base_phi or zero_phi_weights.copy()
         
         processed_result = process_planet_data(
             normalized_planet_name,
@@ -974,42 +970,29 @@ def save_planet_weights():
     initial_hab_weights = session.get('initial_hab_weights', {})
     initial_phi_weights = session.get('initial_phi_weights', {})
 
-    existing_weights = session.get('planet_weights', {})
+    existing_weights = {}
 
     for planet_name, weights in normalized_planet_weights.items():
         hab_weights = canonicalize_weight_keys(weights.get('habitability', {}))
         phi_weights = canonicalize_weight_keys(weights.get('phi', {}))
 
-        planet_entry = existing_weights.get(planet_name, {})
-        existing_hab = planet_entry.get('habitability', {})
-        existing_phi = planet_entry.get('phi', {})
+        final_hab = {
+            k: v for k, v in hab_weights.items()
+            if not math.isclose(v, initial_hab_weights.get(planet_name, {}).get(k, 0.0), rel_tol=1e-9)
+        }
+        final_phi = {
+            k: v for k, v in phi_weights.items()
+            if not math.isclose(v, initial_phi_weights.get(planet_name, {}).get(k, 0.0), rel_tol=1e-9)
+        }
 
-        for key, value in hab_weights.items():
-            if math.isclose(value, initial_hab_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
-                existing_hab.pop(key, None)
-            else:
-                existing_hab[key] = value
-
-        for key, value in phi_weights.items():
-            if math.isclose(value, initial_phi_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
-                existing_phi.pop(key, None)
-            else:
-                existing_phi[key] = value
-
-        if existing_hab:
-            planet_entry['habitability'] = existing_hab
-        else:
-            planet_entry.pop('habitability', None)
-
-        if existing_phi:
-            planet_entry['phi'] = existing_phi
-        else:
-            planet_entry.pop('phi', None)
+        planet_entry = {}
+        if final_hab:
+            planet_entry['habitability'] = final_hab
+        if final_phi:
+            planet_entry['phi'] = final_phi
 
         if planet_entry:
             existing_weights[planet_name] = planet_entry
-        else:
-            existing_weights.pop(planet_name, None)
 
     if use_individual_weights and existing_weights:
         session['planet_weights'] = existing_weights
