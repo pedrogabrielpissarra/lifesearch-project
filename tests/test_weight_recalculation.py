@@ -68,13 +68,13 @@ def _patch_processing(monkeypatch):
     return captured
 
 
-def test_reference_endpoint_returns_baseline_scores_without_deltas(client, monkeypatch):
+def test_reference_endpoint_returns_baseline_scores(client, monkeypatch):
     _setup_session(client)
     captured = _patch_processing(monkeypatch)
 
     response = client.post('/api/planets/reference_values', json={
         'use_individual_weights': True,
-        'weights_are_deltas': True,
+        'weights_are_deltas': False,
         'planet_weights': {}
     }).get_json()
 
@@ -85,113 +85,95 @@ def test_reference_endpoint_returns_baseline_scores_without_deltas(client, monke
     assert pytest.approx(expected_phi, rel=1e-6) == planet['phi']
 
 
-def test_reference_endpoint_applies_negative_delta(client, monkeypatch):
+def test_reference_endpoint_lower_weight_decreases_score(client, monkeypatch):
     _setup_session(client)
     captured = _patch_processing(monkeypatch)
-
     norm = normalize_name('Kepler-276 c')
-    client.post('/api/planets/reference_values', json={
-        'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {}
-    })
-    baseline_weights = captured['habitability'].copy()
 
-    delta = -0.2
-    response = client.post('/api/planets/reference_values', json={
+    baseline_response = client.post('/api/planets/reference_values', json={
         'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {norm: {'habitability': {'Habitable Zone': delta}}}
+        'weights_are_deltas': False,
+        'planet_weights': {}
     }).get_json()
+    baseline_esi = baseline_response['planets'][0]['esi']
 
-    actual_weights = captured['habitability'].copy()
-    assert pytest.approx(baseline_weights['Habitable Zone'] + delta, rel=1e-6) == actual_weights['Habitable Zone']
-    expected_esi, _ = calculate_esi_score(planet_data, actual_weights)
-    planet = response['planets'][0]
-    assert pytest.approx(expected_esi, rel=1e-6) == planet['esi']
-
-
-def test_save_planet_weights_stores_and_clears_deltas(client):
-    _setup_session(client)
-    norm = normalize_name('Kepler-276 c')
-
-    delta_payload = {
-        'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {norm: {'habitability': {'Habitable Zone': -0.12}}}
-    }
-    response = client.post('/api/save-planet-weights', json=delta_payload).get_json()
-
-    with client.session_transaction() as sess:
-        stored = sess['planet_weights'][norm]['habitability']
-        assert pytest.approx(-0.12, rel=1e-9) == stored['Habitable Zone']
-        assert sess['use_individual_weights'] is True
-
-    expected_actual = initial_hab_weights.copy()
-    expected_actual['Habitable Zone'] -= 0.12
-    saved_actual = response['saved_weights'][norm]['habitability']
-    assert pytest.approx(expected_actual['Habitable Zone'], rel=1e-6) == saved_actual['Habitable Zone']
-
-    reset_payload = {
-        'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {norm: {'habitability': {}}}
-    }
-    client.post('/api/save-planet-weights', json=reset_payload)
-    with client.session_transaction() as sess:
-        assert sess.get('planet_weights') in (None, {})
-
-
-def test_reference_endpoint_accepts_absolute_payloads(client, monkeypatch):
-    _setup_session(client)
-    captured = _patch_processing(monkeypatch)
-
-    norm = normalize_name('Kepler-276 c')
-    client.post('/api/planets/reference_values', json={
-        'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {}
-    })
-    baseline_weights = captured['habitability'].copy()
-    absolute_value = baseline_weights['Habitable Zone'] - 0.15
+    lowered_value = initial_hab_weights['Habitable Zone'] - 0.2
     response = client.post('/api/planets/reference_values', json={
         'use_individual_weights': True,
         'weights_are_deltas': False,
-        'planet_weights': {norm: {'habitability': {'Habitable Zone': absolute_value}}}
+        'planet_weights': {
+            norm: {'habitability': {'Habitable Zone': lowered_value}}
+        }
     }).get_json()
 
-    actual_weights = baseline_weights.copy()
-    actual_weights['Habitable Zone'] = absolute_value
-    expected_esi, _ = calculate_esi_score(planet_data, actual_weights)
     planet = response['planets'][0]
+    expected_esi, _ = calculate_esi_score(planet_data, captured['habitability'])
+    assert pytest.approx(lowered_value, rel=1e-9) == captured['habitability']['Habitable Zone']
     assert pytest.approx(expected_esi, rel=1e-6) == planet['esi']
+    assert planet['esi'] < baseline_esi
 
 
-def test_reference_endpoint_uses_session_deltas_when_payload_empty(client, monkeypatch):
+def test_save_planet_weights_stores_actual_and_clears_baseline(client):
+    _setup_session(client)
+    norm = normalize_name('Kepler-276 c')
+    lowered_value = initial_hab_weights['Habitable Zone'] - 0.15
+
+    save_payload = {
+        'use_individual_weights': True,
+        'weights_are_deltas': False,
+        'planet_weights': {
+            norm: {'habitability': {'Habitable Zone': lowered_value}}
+        }
+    }
+    response = client.post('/api/save-planet-weights', json=save_payload).get_json()
+
+    with client.session_transaction() as sess:
+        stored = sess['planet_weights'][norm]['habitability']['Habitable Zone']
+        assert pytest.approx(lowered_value, rel=1e-9) == stored
+
+    saved_actual = response['saved_weights'][norm]['habitability']['Habitable Zone']
+    assert pytest.approx(lowered_value, rel=1e-9) == saved_actual
+
+    reset_payload = {
+        'use_individual_weights': True,
+        'weights_are_deltas': False,
+        'planet_weights': {
+            norm: {'habitability': {'Habitable Zone': initial_hab_weights['Habitable Zone']}}
+        }
+    }
+    client.post('/api/save-planet-weights', json=reset_payload)
+
+    with client.session_transaction() as sess:
+        assert norm not in sess.get('planet_weights', {})
+
+
+def test_reference_endpoint_flushes_previous_values(client, monkeypatch):
     _setup_session(client)
     captured = _patch_processing(monkeypatch)
-
     norm = normalize_name('Kepler-276 c')
-    client.post('/api/planets/reference_values', json={
-        'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {}
-    })
-    baseline_weights = captured['habitability'].copy()
-    client.post('/api/save-planet-weights', json={
-        'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {norm: {'habitability': {'Habitable Zone': 0.1}}}
-    })
 
-    response = client.post('/api/planets/reference_values', json={
+    higher_value = 0.97
+    first_response = client.post('/api/planets/reference_values', json={
         'use_individual_weights': True,
-        'weights_are_deltas': True,
-        'planet_weights': {}
+        'weights_are_deltas': False,
+        'planet_weights': {
+            norm: {'habitability': {'Habitable Zone': higher_value}}
+        }
     }).get_json()
+    first_weights = captured['habitability'].copy()
+    first_esi = first_response['planets'][0]['esi']
 
-    actual_weights = captured['habitability'].copy()
-    assert pytest.approx(baseline_weights['Habitable Zone'] + 0.1, rel=1e-6) == actual_weights['Habitable Zone']
-    expected_esi, _ = calculate_esi_score(planet_data, actual_weights)
-    planet = response['planets'][0]
-    assert pytest.approx(expected_esi, rel=1e-6) == planet['esi']
+    lower_value = 0.5
+    second_response = client.post('/api/planets/reference_values', json={
+        'use_individual_weights': True,
+        'weights_are_deltas': False,
+        'planet_weights': {
+            norm: {'habitability': {'Habitable Zone': lower_value}}
+        }
+    }).get_json()
+    second_weights = captured['habitability'].copy()
+    second_esi = second_response['planets'][0]['esi']
+
+    assert pytest.approx(higher_value, rel=1e-9) == first_weights['Habitable Zone']
+    assert pytest.approx(lower_value, rel=1e-9) == second_weights['Habitable Zone']
+    assert second_esi < first_esi

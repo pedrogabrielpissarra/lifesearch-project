@@ -111,21 +111,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const habFactorDefinitions = [
-        { key: 'habitable_zone', label: 'Habitable Zone', defaultVal: DEFAULT_HAB_WEIGHTS['Habitable Zone'] || 1.0, min: 0, max: 1, step: 0.01 },
-        { key: 'size', label: 'Size', defaultVal: DEFAULT_HAB_WEIGHTS['Size'] || 1.0, min: 0, max: 1, step: 0.01 },
-        { key: 'density', label: 'Density', defaultVal: DEFAULT_HAB_WEIGHTS['Density'] || 1.0, min: 0, max: 1, step: 0.01 },
-        { key: 'atmosphere', label: 'Atmosphere', defaultVal: DEFAULT_HAB_WEIGHTS['Atmosphere'] || 1.0, min: 0, max: 1, step: 0.01 },
-        { key: 'water', label: 'Water', defaultVal: DEFAULT_HAB_WEIGHTS['Water'] || 1.0, min: 0, max: 1, step: 0.01 },
-        { key: 'presence_of_moons', label: 'Presence of Moons', defaultVal: DEFAULT_HAB_WEIGHTS['Presence of Moons'] || 1.0, min: 0, max: 1, step: 0.01 },
-        { key: 'magnetic_activity', label: 'Magnetic Activity', defaultVal: DEFAULT_HAB_WEIGHTS['Magnetic Activity'] || 1.0, min: 0, max: 1, step: 0.01 },
-        { key: 'system_age', label: 'System Age', defaultVal: DEFAULT_HAB_WEIGHTS['System Age'] || 1.0, min: 0, max: 1, step: 0.01 }
+        { key: 'habitable_zone', label: 'Habitable Zone', absMin: 0, absMax: 1, step: 0.01 },
+        { key: 'size', label: 'Size', absMin: 0, absMax: 1, step: 0.01 },
+        { key: 'density', label: 'Density', absMin: 0, absMax: 1, step: 0.01 },
+        { key: 'atmosphere', label: 'Atmosphere', absMin: 0, absMax: 1, step: 0.01 },
+        { key: 'water', label: 'Water', absMin: 0, absMax: 1, step: 0.01 },
+        { key: 'presence_of_moons', label: 'Presence of Moons', absMin: 0, absMax: 1, step: 0.01 },
+        { key: 'magnetic_activity', label: 'Magnetic Activity', absMin: 0, absMax: 1, step: 0.01 },
+        { key: 'system_age', label: 'System Age', absMin: 0, absMax: 1, step: 0.01 }
     ];
 
     const phiFactorDefinitions = [
-        { key: 'solid_surface', label: 'Solid Surface', defaultVal: DEFAULT_PHI_WEIGHTS['Solid Surface'] || 0.25, min: 0, max: 0.25, step: 0.01 },
-        { key: 'stable_energy', label: 'Stable Energy', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Energy'] || 0.25, min: 0, max: 0.25, step: 0.01 },
-        { key: 'life_compounds', label: 'Life Compounds', defaultVal: DEFAULT_PHI_WEIGHTS['Life Compounds'] || 0.25, min: 0, max: 0.25, step: 0.01 },
-        { key: 'stable_orbit', label: 'Stable Orbit', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Orbit'] || 0.25, min: 0, max: 0.25, step: 0.01 }
+        { key: 'solid_surface', label: 'Solid Surface', absMin: 0, absMax: 0.25, step: 0.01 },
+        { key: 'stable_energy', label: 'Stable Energy', absMin: 0, absMax: 0.25, step: 0.01 },
+        { key: 'life_compounds', label: 'Life Compounds', absMin: 0, absMax: 0.25, step: 0.01 },
+        { key: 'stable_orbit', label: 'Stable Orbit', absMin: 0, absMax: 0.25, step: 0.01 }
     ];
 
     const useIndividualWeightsCheckbox = document.getElementById('use-individual-weights');
@@ -152,6 +152,33 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function roundToStep(value, step) {
+        const numericStep = Number(step);
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+            return 0;
+        }
+        if (!Number.isFinite(numericStep) || numericStep <= 0) {
+            return numericValue;
+        }
+        const inverse = 1 / numericStep;
+        return Math.round(numericValue * inverse) / inverse;
+    }
+
+    function clampValue(value, min, max) {
+        let numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            numeric = 0;
+        }
+        if (Number.isFinite(min)) {
+            numeric = Math.max(numeric, min);
+        }
+        if (Number.isFinite(max)) {
+            numeric = Math.min(numeric, max);
+        }
+        return numeric;
+    }
+
     function formatWeight(value, digits = 4) {
         const numeric = Number(value);
         if (!Number.isFinite(numeric)) {
@@ -160,74 +187,134 @@ document.addEventListener('DOMContentLoaded', function() {
         return numeric.toFixed(digits);
     }
 
-    function getReferenceWeight(planetNormalizedName, category, displayNameKey) {
+    function formatSigned(value, digits = 2) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            return '+0.00';
+        }
+        const rounded = numeric.toFixed(digits);
+        if (numeric > 0) {
+            return `+${rounded}`;
+        }
+        if (numeric === 0) {
+            return `+${rounded}`;
+        }
+        return rounded;
+    }
+
+    function getBaselineWeight(planetNormalizedName, category, displayNameKey) {
         const source = category === 'hab' ? INITIAL_HAB_WEIGHTS : INITIAL_PHI_WEIGHTS;
         const planetMap = source[planetNormalizedName] || {};
         if (planetMap[displayNameKey] !== undefined) {
-            return planetMap[displayNameKey];
+            return Number(planetMap[displayNameKey]);
         }
         const defaults = category === 'hab' ? DEFAULT_HAB_WEIGHTS : DEFAULT_PHI_WEIGHTS;
         const fallback = defaults[displayNameKey];
-        return fallback !== undefined ? fallback : 0.0;
+        return fallback !== undefined ? Number(fallback) : 0.0;
     }
 
-    function getWeightValue(planetNormalizedName, category, weightKey) {
-        const factorDef = (category === 'hab' ? habFactorDefinitions : phiFactorDefinitions).find(f => f.key === weightKey);
-        if (!factorDef) {
-            console.warn(`Factor definition not found for key: ${weightKey} in category: ${category}`);
-            return (category === 'hab' ? 0.0 : 0.0);
-        }
-
-        const displayNameKey = factorDef.label;
+    function getEffectiveWeight(planetNormalizedName, category, displayNameKey, baselineValue) {
         const savedPlanetWeights = (CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] || {})[category] || {};
         if (savedPlanetWeights[displayNameKey] !== undefined) {
-            console.log(`Using saved weight for ${planetNormalizedName}, ${displayNameKey}: ${savedPlanetWeights[displayNameKey]}`);
-            return savedPlanetWeights[displayNameKey];
+            const numeric = Number(savedPlanetWeights[displayNameKey]);
+            if (Number.isFinite(numeric)) {
+                return numeric;
+            }
         }
-
         const globalCategoryWeights = category === 'hab' ? CURRENT_GLOBAL_HAB_WEIGHTS : CURRENT_GLOBAL_PHI_WEIGHTS;
         if (!USE_INDIVIDUAL_WEIGHTS_ON_LOAD && globalCategoryWeights && globalCategoryWeights[displayNameKey] !== undefined) {
-            console.log(`Using global weight for ${planetNormalizedName}, ${displayNameKey}: ${globalCategoryWeights[displayNameKey]}`);
-            return globalCategoryWeights[displayNameKey];
+            const numeric = Number(globalCategoryWeights[displayNameKey]);
+            if (Number.isFinite(numeric)) {
+                return numeric;
+            }
         }
-
-        console.log(`Using baseline value for ${planetNormalizedName}, ${displayNameKey}: 0.0`);
-        return 0.0;
+        return baselineValue;
     }
 
-    function buildDeltaPayload(actualWeightsMap) {
+    function computeDeltaRange(baseline, absMin, absMax, step) {
+        const deltaMinRaw = absMin - baseline;
+        const deltaMaxRaw = absMax - baseline;
+        const deltaMin = roundToStep(deltaMinRaw, step);
+        const deltaMax = roundToStep(deltaMaxRaw, step);
+        const span = deltaMax - deltaMin;
+        const zeroPosition = span === 0 ? 0 : ((0 - deltaMin) / span) * 100;
+        const clampedZero = Math.min(100, Math.max(0, zeroPosition));
+        return { deltaMin, deltaMax, zeroPercent: clampedZero };
+    }
+
+    function updateEffectiveDisplay(sliderEl, deltaValue) {
+        if (!sliderEl) return;
+        const control = sliderEl.closest('.weight-control');
+        if (!control) return;
+        const baseline = Number(sliderEl.dataset.baseline) || 0;
+        const absMin = Number(sliderEl.dataset.absMin);
+        const absMax = Number(sliderEl.dataset.absMax);
+        const step = Number(sliderEl.step || '0.01');
+        const clampedDelta = clampValue(roundToStep(deltaValue, step), Number(sliderEl.min), Number(sliderEl.max));
+        const effective = clampValue(baseline + clampedDelta, absMin, absMax);
+        const output = control.querySelector('[data-effective-output]');
+        if (output) {
+            output.textContent = `Effective: ${formatWeight(effective)} (Δ ${formatSigned(clampedDelta)})`;
+        }
+    }
+
+    function initializeEffectiveDisplays() {
+        document.querySelectorAll('.planet-weight-slider').forEach(slider => {
+            const currentDelta = Number(slider.value) || 0;
+            updateEffectiveDisplay(slider, currentDelta);
+        });
+    }
+
+    function collectActualWeightsFromCard(card) {
+        const result = { habitability: {}, phi: {} };
+        card.querySelectorAll('.planet-weight-input').forEach(inputElement => {
+            const category = inputElement.dataset.weightType;
+            const label = inputElement.dataset.displayLabel;
+            const slider = card.querySelector(`.planet-weight-slider[data-weight-type="${category}"][data-weight-key="${inputElement.dataset.weightKey}"]`);
+            const baseline = Number(inputElement.dataset.baseline) || 0;
+            const absMin = Number(inputElement.dataset.absMin);
+            const absMax = Number(inputElement.dataset.absMax);
+            const step = Number(inputElement.step || '0.01');
+            const deltaMin = Number(inputElement.min);
+            const deltaMax = Number(inputElement.max);
+            let deltaValue = Number(inputElement.value);
+            if (!Number.isFinite(deltaValue)) {
+                deltaValue = 0;
+            }
+            deltaValue = clampValue(roundToStep(deltaValue, step), deltaMin, deltaMax);
+            if (slider) {
+                slider.value = deltaValue.toFixed(2);
+            }
+            inputElement.value = deltaValue.toFixed(2);
+            const effective = clampValue(baseline + deltaValue, absMin, absMax);
+            updateEffectiveDisplay(slider, deltaValue);
+            if (category === 'hab') {
+                result.habitability[label] = Number(effective.toFixed(4));
+            } else {
+                result.phi[label] = Number(effective.toFixed(4));
+            }
+        });
+        return result;
+    }
+
+    function buildEffectivePayloadFromState() {
         const payload = {};
-        Object.entries(actualWeightsMap || {}).forEach(([planetName, categories]) => {
-            const deltaEntry = {};
-            if (categories?.habitability) {
-                const deltaHab = {};
-                Object.entries(categories.habitability).forEach(([label, value]) => {
-                    const reference = getReferenceWeight(planetName, 'hab', label);
-                    const numeric = Number(value);
-                    if (Number.isFinite(numeric)) {
-                        const delta = numeric - reference;
-                        if (Math.abs(delta) > 1e-9) {
-                            deltaHab[label] = delta;
-                        }
-                    }
-                });
-                deltaEntry.habitability = deltaHab;
-            }
-            if (categories?.phi) {
-                const deltaPhi = {};
-                Object.entries(categories.phi).forEach(([label, value]) => {
-                    const reference = getReferenceWeight(planetName, 'phi', label);
-                    const numeric = Number(value);
-                    if (Number.isFinite(numeric)) {
-                        const delta = numeric - reference;
-                        if (Math.abs(delta) > 1e-9) {
-                            deltaPhi[label] = delta;
-                        }
-                    }
-                });
-                deltaEntry.phi = deltaPhi;
-            }
-            payload[planetName] = deltaEntry;
+        Object.entries(CURRENT_PLANET_SPECIFIC_WEIGHTS || {}).forEach(([planetName, categories]) => {
+            const habitability = {};
+            const phi = {};
+            Object.entries(categories?.habitability || {}).forEach(([label, value]) => {
+                const numeric = Number(value);
+                if (Number.isFinite(numeric)) {
+                    habitability[label] = numeric;
+                }
+            });
+            Object.entries(categories?.phi || {}).forEach(([label, value]) => {
+                const numeric = Number(value);
+                if (Number.isFinite(numeric)) {
+                    phi[label] = numeric;
+                }
+            });
+            payload[planetName] = { habitability, phi };
         });
         return payload;
     }
@@ -264,22 +351,39 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <div class="tab-pane fade show active" id="hab-content-${index}" role="tabpanel">
                                         <div class="row">`;
                     habFactorDefinitions.forEach(factor => {
-                        const currentValue = getWeightValue(planetNormalizedName, 'hab', factor.key);
-                        const referenceValue = getReferenceWeight(planetNormalizedName, 'hab', factor.label);
+                        const baselineValue = getBaselineWeight(planetNormalizedName, 'hab', factor.label);
+                        const effectiveValue = getEffectiveWeight(planetNormalizedName, 'hab', factor.label, baselineValue);
+                        const { deltaMin, deltaMax, zeroPercent } = computeDeltaRange(baselineValue, factor.absMin, factor.absMax, factor.step);
+                        let deltaValue = roundToStep(effectiveValue - baselineValue, factor.step);
+                        deltaValue = clampValue(deltaValue, deltaMin, deltaMax);
+                        const sliderMin = deltaMin.toFixed(2);
+                        const sliderMax = deltaMax.toFixed(2);
+                        const sliderValue = deltaValue.toFixed(2);
+                        const baselinePercent = zeroPercent.toFixed(2);
                         html += `
                             <div class="col-md-6 mb-3">
                                 <label class="form-label d-flex justify-content-between align-items-center">
                                     <span>${factor.label}</span>
-                                    <span class="badge bg-light text-dark border reference-weight-badge">Ref: ${formatWeight(referenceValue)}</span>
+                                    <span class="badge bg-light text-dark border reference-weight-badge">Ref: ${formatWeight(baselineValue)}</span>
                                 </label>
-                                <div class="input-group align-items-center gap-2">
-                                    <input type="range" class="form-range planet-weight-slider"
-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
-                                           data-reference-value="${referenceValue}"
-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}">
-                                    <input type="number" class="form-control planet-weight-input"
-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}" style="width: 80px;">
+                                <div class="weight-control">
+                                    <div class="relative-slider">
+                                        <div class="baseline-marker" style="left: ${baselinePercent}%"></div>
+                                        <input type="range" class="form-range planet-weight-slider"
+                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
+                                               data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
+                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}">
+                                    </div>
+                                    <div class="input-group align-items-center gap-2 mt-2">
+                                        <span class="input-group-text">Δ</span>
+                                        <input type="number" class="form-control planet-weight-input"
+                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
+                                               data-display-label="${factor.label}" data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
+                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}" style="width: 100px;">
+                                    </div>
+                                    <div class="effective-value text-muted small" data-effective-output>
+                                        Effective: ${formatWeight(effectiveValue)} (Δ ${formatSigned(deltaValue)})
+                                    </div>
                                 </div>
                                 <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
                             </div>`;
@@ -289,22 +393,39 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div class="tab-pane fade" id="phi-content-${index}" role="tabpanel">
                                     <div class="row">`;
                     phiFactorDefinitions.forEach(factor => {
-                        const currentValue = getWeightValue(planetNormalizedName, 'phi', factor.key);
-                        const referenceValue = getReferenceWeight(planetNormalizedName, 'phi', factor.label);
+                        const baselineValue = getBaselineWeight(planetNormalizedName, 'phi', factor.label);
+                        const effectiveValue = getEffectiveWeight(planetNormalizedName, 'phi', factor.label, baselineValue);
+                        const { deltaMin, deltaMax, zeroPercent } = computeDeltaRange(baselineValue, factor.absMin, factor.absMax, factor.step);
+                        let deltaValue = roundToStep(effectiveValue - baselineValue, factor.step);
+                        deltaValue = clampValue(deltaValue, deltaMin, deltaMax);
+                        const sliderMin = deltaMin.toFixed(2);
+                        const sliderMax = deltaMax.toFixed(2);
+                        const sliderValue = deltaValue.toFixed(2);
+                        const baselinePercent = zeroPercent.toFixed(2);
                         html += `
                             <div class="col-md-6 mb-3">
                                 <label class="form-label d-flex justify-content-between align-items-center">
                                     <span>${factor.label}</span>
-                                    <span class="badge bg-light text-dark border reference-weight-badge">Ref: ${formatWeight(referenceValue)}</span>
+                                    <span class="badge bg-light text-dark border reference-weight-badge">Ref: ${formatWeight(baselineValue)}</span>
                                 </label>
-                                <div class="input-group align-items-center gap-2">
-                                    <input type="range" class="form-range planet-weight-slider"
-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
-                                           data-reference-value="${referenceValue}"
-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}">
-                                    <input type="number" class="form-control planet-weight-input"
-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}" style="width: 80px;">
+                                <div class="weight-control">
+                                    <div class="relative-slider">
+                                        <div class="baseline-marker" style="left: ${baselinePercent}%"></div>
+                                        <input type="range" class="form-range planet-weight-slider"
+                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
+                                               data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
+                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}">
+                                    </div>
+                                    <div class="input-group align-items-center gap-2 mt-2">
+                                        <span class="input-group-text">Δ</span>
+                                        <input type="number" class="form-control planet-weight-input"
+                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
+                                               data-display-label="${factor.label}" data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
+                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}" style="width: 100px;">
+                                    </div>
+                                    <div class="effective-value text-muted small" data-effective-output>
+                                        Effective: ${formatWeight(effectiveValue)} (Δ ${formatSigned(deltaValue)})
+                                    </div>
                                 </div>
                                 <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
                             </div>`;
@@ -338,55 +459,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 const planetNormalizedName = this.dataset.planetNormalizedName;
                 const planetDisplayName = this.dataset.planetDisplayName;
                 const useIndividual = useIndividualWeightsCheckbox.checked;
-                let collectedWeights = {};
-
                 const card = document.querySelector(`.planet-weight-card[data-planet-normalized-name="${planetNormalizedName}"]`);
                 if (!card) return;
 
-                let currentPlanetHabWeights = {};
-                let currentPlanetPhiWeights = {};
-                let hasChanges = false;
-
-                const savedHab = (CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] || {}).habitability || {};
-                const savedPhi = (CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] || {}).phi || {};
-
-                habFactorDefinitions.forEach(factorDef => {
-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="hab"][data-weight-key="${factorDef.key}"]`);
-                    if (inputElement) {
-                        const val = parseFloat(inputElement.value);
-                        currentPlanetHabWeights[factorDef.label] = val;
-                        const baseline = savedHab[factorDef.label] ?? 0.0;
-                        if (Math.abs(val - baseline) > 1e-9) {
-                            hasChanges = true;
-                        }
-                    }
-                });
-
-                phiFactorDefinitions.forEach(factorDef => {
-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
-                    if (inputElement) {
-                        const val = parseFloat(inputElement.value);
-                        currentPlanetPhiWeights[factorDef.label] = val;
-                        const baseline = savedPhi[factorDef.label] ?? 0.0;
-                        if (Math.abs(val - baseline) > 1e-9) {
-                            hasChanges = true;
-                        }
-                    }
-                });
-
-                if (hasChanges) {
-                    collectedWeights[planetNormalizedName] = {
-                        habitability: currentPlanetHabWeights,
-                        phi: currentPlanetPhiWeights
-                    };
-                }
-
-                const deltaWeights = buildDeltaPayload(collectedWeights);
+                const collected = collectActualWeightsFromCard(card);
+                const collectedWeights = { [planetNormalizedName]: collected };
                 const shouldUseIndividual = useIndividual && Object.keys(collectedWeights).length > 0;
 
                 console.log(`Saving weights for ${planetDisplayName}:`, {
                     use_individual_weights: shouldUseIndividual,
-                    planet_weights: deltaWeights
+                    planet_weights: collectedWeights
                 });
 
                 try {
@@ -395,8 +477,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             use_individual_weights: shouldUseIndividual,
-                            weights_are_deltas: true,
-                            planet_weights: deltaWeights
+                            weights_are_deltas: false,
+                            planet_weights: collectedWeights
                         })
                     });
                     if (!response.ok) throw new Error(`Failed to save weights for ${planetDisplayName}: ${response.status}`);
@@ -429,7 +511,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const inputField = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
 
             if (inputField) {
-                slider.addEventListener('input', function() { inputField.value = this.value; });
+                slider.addEventListener('input', function() {
+                    const step = Number(this.step || '0.01');
+                    let deltaValue = Number(this.value);
+                    if (!Number.isFinite(deltaValue)) {
+                        deltaValue = 0;
+                    }
+                    deltaValue = clampValue(roundToStep(deltaValue, step), Number(this.min), Number(this.max));
+                    const formatted = deltaValue.toFixed(2);
+                    this.value = formatted;
+                    inputField.value = formatted;
+                    updateEffectiveDisplay(this, deltaValue);
+                });
             }
         });
 
@@ -440,32 +533,53 @@ document.addEventListener('DOMContentLoaded', function() {
             const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
 
             if (slider) {
-                input.addEventListener('input', function() { slider.value = this.value; });
+                input.addEventListener('input', function() {
+                    const step = Number(this.step || '0.01');
+                    let deltaValue = Number(this.value);
+                    if (!Number.isFinite(deltaValue)) {
+                        deltaValue = 0;
+                    }
+                    deltaValue = clampValue(roundToStep(deltaValue, step), Number(this.min), Number(this.max));
+                    const formatted = deltaValue.toFixed(2);
+                    this.value = formatted;
+                    slider.value = formatted;
+                    updateEffectiveDisplay(slider, deltaValue);
+                });
             }
         });
+
+        initializeEffectiveDisplays();
     }
 
     function setupResetButtons() {
         document.querySelectorAll('.reset-planet-weights-btn').forEach(button => {
             button.addEventListener('click', function() {
                 const planetNormalizedName = this.dataset.planetNormalizedName;
-                
+
                 habFactorDefinitions.forEach(factor => {
                     const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
                     const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
-                    const initialValue = INITIAL_HAB_WEIGHTS[planetNormalizedName]?.[factor.label] ?? factor.defaultVal;
-                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to ${initialValue}`);
-                    if (slider) slider.value = initialValue;
-                    if (input) input.value = initialValue;
+                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to baseline delta 0`);
+                    if (slider) {
+                        slider.value = '0.00';
+                        updateEffectiveDisplay(slider, 0);
+                    }
+                    if (input) {
+                        input.value = '0.00';
+                    }
                 });
 
                 phiFactorDefinitions.forEach(factor => {
                     const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
                     const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
-                    const initialValue = INITIAL_PHI_WEIGHTS[planetNormalizedName]?.[factor.label] ?? factor.defaultVal;
-                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to ${initialValue}`);
-                    if (slider) slider.value = initialValue;
-                    if (input) input.value = initialValue;
+                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to baseline delta 0`);
+                    if (slider) {
+                        slider.value = '0.00';
+                        updateEffectiveDisplay(slider, 0);
+                    }
+                    if (input) {
+                        input.value = '0.00';
+                    }
                 });
             });
         });
@@ -480,52 +594,15 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('.planet-weight-card').forEach(card => {
                 const planetDisplayName = card.dataset.planetDisplayName;
                 const planetNormalizedName = normalizePlanetName(planetDisplayName);
-
-                let currentPlanetHabWeights = {};
-                let currentPlanetPhiWeights = {};
-                let hasChanges = false;
-
-                const savedHab = (CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] || {}).habitability || {};
-                const savedPhi = (CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] || {}).phi || {};
-
-                habFactorDefinitions.forEach(factorDef => {
-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="hab"][data-weight-key="${factorDef.key}"]`);
-                    if (inputElement) {
-                        const val = parseFloat(inputElement.value);
-                        currentPlanetHabWeights[factorDef.label] = val;
-                        const baseline = savedHab[factorDef.label] ?? 0.0;
-                        if (Math.abs(val - baseline) > 1e-9) {
-                            hasChanges = true;
-                        }
-                    }
-                });
-
-                phiFactorDefinitions.forEach(factorDef => {
-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
-                    if (inputElement) {
-                        const val = parseFloat(inputElement.value);
-                        currentPlanetPhiWeights[factorDef.label] = val;
-                        const baseline = savedPhi[factorDef.label] ?? 0.0;
-                        if (Math.abs(val - baseline) > 1e-9) {
-                            hasChanges = true;
-                        }
-                    }
-                });
-
-            if (hasChanges) {
-                collectedWeights[planetNormalizedName] = {
-                    habitability: currentPlanetHabWeights,
-                    phi: currentPlanetPhiWeights
-                };
-            }
+                const collected = collectActualWeightsFromCard(card);
+                collectedWeights[planetNormalizedName] = collected;
         });
 
-        const deltaWeights = buildDeltaPayload(collectedWeights);
         const shouldUseIndividual = useIndividual && Object.keys(collectedWeights).length > 0;
 
         console.log('Sending weights to API:', {
             use_individual_weights: shouldUseIndividual,
-            planet_weights: deltaWeights
+            planet_weights: collectedWeights
         });
 
         try {
@@ -534,8 +611,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     use_individual_weights: shouldUseIndividual,
-                    weights_are_deltas: true,
-                    planet_weights: deltaWeights
+                    weights_are_deltas: false,
+                    planet_weights: collectedWeights
                 })
             });
             if (!response.ok) throw new Error(`Failed to save weights: ${response.status}`);
@@ -564,8 +641,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const useIndividual = useIndividualWeightsCheckbox.checked;
             const payload = {
                 use_individual_weights: useIndividual,
-                weights_are_deltas: true,
-                planet_weights: useIndividual ? buildDeltaPayload(CURRENT_PLANET_SPECIFIC_WEIGHTS) : {}
+                weights_are_deltas: false,
+                planet_weights: useIndividual ? buildEffectivePayloadFromState() : {}
             };
             console.log('Sending reference values request:', payload);
 
@@ -631,6 +708,27 @@ document.addEventListener('DOMContentLoaded', function() {
 .reference-weight-badge {
     font-size: 0.75rem;
     font-weight: 500;
+}
+
+.weight-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.relative-slider {
+    position: relative;
+    width: 100%;
+}
+
+.relative-slider .baseline-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: #0d6efd;
+    opacity: 0.6;
+    pointer-events: none;
 }
 </style>
 {% endblock %}
