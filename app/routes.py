@@ -454,8 +454,6 @@ def get_planet_reference_values():
     zero_phi_weights = {k: 0.0 for k in default_phi_weights}
     global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
     global_phi_weights = session.get("phi_weights", zero_phi_weights)
-    initial_hab_weights = session.get("initial_hab_weights", {})
-    initial_phi_weights = session.get("initial_phi_weights", {})
     session_planet_weights = session.get("planet_weights", {})
     session_use_individual = session.get('use_individual_weights', False)
     
@@ -485,8 +483,8 @@ def get_planet_reference_values():
             "phi": global_phi_weights.copy(),
         }
 
-        base_hab = initial_hab_weights.get(normalized_planet_name, {}).copy()
-        base_phi = initial_phi_weights.get(normalized_planet_name, {}).copy()
+        base_hab = {}
+        base_phi = {}
 
         if session_use_individual:
             saved_weights = session_planet_weights.get(normalized_planet_name, {})
@@ -502,15 +500,16 @@ def get_planet_reference_values():
                 planet_specific_weights.get('phi', {})
             )
             if hab_override:
-                base_hab = hab_override
+                base_hab.update(hab_override)
             if phi_override:
-                base_phi = phi_override
+                base_phi.update(phi_override)
             logger.info(
                 f"Using individual weights for {normalized_planet_name}: updates={{'habitability': hab_override, 'phi': phi_override}}"
             )
 
-        weights["habitability"] = base_hab or zero_habitability_weights.copy()
-        weights["phi"] = base_phi or zero_phi_weights.copy()
+        if session_use_individual or use_individual_weights:
+            weights["habitability"] = base_hab.copy() if base_hab else zero_habitability_weights.copy()
+            weights["phi"] = base_phi.copy() if base_phi else zero_phi_weights.copy()
         
         processed_result = process_planet_data(
             normalized_planet_name,
@@ -994,9 +993,12 @@ def save_planet_weights():
         if planet_entry:
             existing_weights[planet_name] = planet_entry
 
-    if use_individual_weights and existing_weights:
-        session['planet_weights'] = existing_weights
+    if use_individual_weights:
         session['use_individual_weights'] = True
+        if existing_weights:
+            session['planet_weights'] = existing_weights
+        else:
+            session.pop('planet_weights', None)
     else:
         session.pop('planet_weights', None)
         session['use_individual_weights'] = False

@@ -205,6 +205,24 @@ def _setup_reference(client, monkeypatch):
     return norm
 
 
+def test_reference_endpoint_ignores_initial_similarity_weights(client, monkeypatch):
+    _setup_reference(client, monkeypatch)
+
+    resp = client.post(
+        '/api/planets/reference_values',
+        json={'use_individual_weights': True, 'planet_weights': {}}
+    ).get_json()
+
+    esi_value = resp['planets'][0]['esi']
+    phi_value = resp['planets'][0]['phi']
+
+    expected_esi, _ = calculate_esi_score(planet_data, {})
+    expected_phi, _ = calculate_phi_score(planet_data, {})
+
+    assert pytest.approx(expected_esi, rel=1e-6) == esi_value
+    assert pytest.approx(expected_phi, rel=1e-6) == phi_value
+
+
 def test_flush_values_before_recalculate(client, monkeypatch):
     norm = _setup_reference(client, monkeypatch)
 
