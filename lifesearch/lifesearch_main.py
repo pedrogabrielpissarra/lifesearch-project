@@ -261,7 +261,7 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
     return sephi_val * 100, L1 * 100, L2 * 100, L3 * 100, L4 * 100
 
 # --- Core Calculation Functions ---
-def calculate_esi_score(planet_data, weights):
+def calculate_esi_score(planet_data, weights, component_overrides=None):
     """Calculates the Earth Similarity Index (ESI) for a planet.
     
     The ESI measures similarity to Earth based on radius, density, and
@@ -279,6 +279,57 @@ def calculate_esi_score(planet_data, weights):
     """
     logger.debug(f"Calculating ESI for planet: {planet_data.get('pl_name', 'Unknown')}")
     earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
+    component_overrides = component_overrides or {}
+
+    if component_overrides:
+        logger.debug(f"ESI component overrides provided: {component_overrides}")
+        components = []
+        factor_map = [
+            ("Habitable Zone", "pl_eqt"),
+            ("Size", "pl_rade"),
+            ("Density", "pl_dens"),
+        ]
+        for label, param_key in factor_map:
+            override_val = component_overrides.get(label)
+            if override_val is not None:
+                try:
+                    numeric = float(override_val)
+                    if math.isnan(numeric):
+                        raise ValueError("NaN override")
+                except (TypeError, ValueError):
+                    logger.debug(f"Invalid override for {label}: {override_val}")
+                else:
+                    clamped = max(0.0, min(1.0, numeric))
+                    components.append(clamped)
+                    logger.debug(f"Using override component for {label}: {clamped}")
+                    continue
+
+            planet_val = planet_data.get(param_key)
+            earth_val = earth_params.get(param_key)
+            if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
+                try:
+                    planet_val_fl = float(planet_val)
+                    earth_val_fl = float(earth_val)
+                    if (planet_val_fl + earth_val_fl) == 0:
+                        similarity_component = 0.0
+                    else:
+                        similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
+                    similarity_component = max(0.0, min(1.0, similarity_component))
+                    components.append(similarity_component)
+                    logger.debug(f"Fallback similarity component for {label}: {similarity_component}")
+                except (ValueError, TypeError):
+                    logger.debug(f"Could not compute similarity component for {label} with values {planet_val} and {earth_val}")
+            else:
+                logger.debug(f"Missing data for {label}: planet_val={planet_val}, earth_val={earth_val}")
+
+        if not components:
+            logger.warning("No valid ESI components found after applying overrides.")
+            return 0.0, get_color_for_percentage(0.0)
+
+        final_esi = (sum(components) / len(components)) * 100
+        logger.info(f"Final ESI (override path) for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
+        return round(final_esi, 2), get_color_for_percentage(final_esi)
+
     esi_factors_map = {
         "pl_rade": weights.get("Size", 0.0),
         "pl_dens": weights.get("Density", 0.0),
@@ -362,7 +413,7 @@ def calculate_sph_score(planet_data, weights):
     logger.info(f"Final SPH for {planet_data.get('pl_name', 'Unknown')}: {final_sph}")
     return round(final_sph, 2), get_color_for_percentage(final_sph)
 
-def calculate_phi_score(planet_data, phi_weights):
+def calculate_phi_score(planet_data, phi_weights, component_overrides=None):
     """Calculates a Planetary Habitability Index (PHI) score.
     
     PHI is based on factors like "Solid Surface", "Stable Energy",
@@ -417,9 +468,42 @@ def calculate_phi_score(planet_data, phi_weights):
 
     logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
 
+    component_overrides = component_overrides or {}
+    max_weight = 0.25
+
+    if component_overrides:
+        logger.debug(f"PHI component overrides provided: {component_overrides}")
+        phi_components = []
+        for factor_name, default_score in factors_present_scores.items():
+            override_val = component_overrides.get(factor_name)
+            if override_val is not None:
+                try:
+                    numeric = float(override_val)
+                    if math.isnan(numeric):
+                        raise ValueError("NaN override")
+                except (TypeError, ValueError):
+                    logger.debug(f"Invalid PHI override for {factor_name}: {override_val}")
+                else:
+                    clamped = max(0.0, min(max_weight, numeric))
+                    normalized = clamped / max_weight if max_weight > 0 else clamped
+                    phi_components.append(normalized)
+                    logger.debug(f"Using override component for {factor_name}: {normalized}")
+                    continue
+
+            phi_components.append(default_score)
+            logger.debug(f"Fallback component for {factor_name}: {default_score}")
+
+        if not phi_components:
+            logger.warning("No valid PHI components found after applying overrides.")
+            return 0.0, get_color_for_percentage(0.0)
+
+        final_phi = (sum(phi_components) / len(phi_components)) * 100
+        final_phi = max(0.0, min(final_phi, 100.0))
+        logger.info(f"Final PHI (override path) for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
+        return round(final_phi, 2), get_color_for_percentage(final_phi)
+
     phi_components = []
     num_params = 0
-    max_weight = 0.25
 
     for factor_name, factor_score in factors_present_scores.items():
         weight_val = phi_weights.get(factor_name, 0.0)
@@ -685,9 +769,14 @@ def process_planet_data(planet_name, combined_data, weights_config):
 
     star_data_for_plot = {"st_lum": planet_data_dict.get("st_lum")}
     logger.debug(f"Star data for plot for {planet_name}: {star_data_for_plot}")
-    esi_val, esi_color = calculate_esi_score(planet_data_dict, weights_config.get("habitability", {}))
-    sph_val, sph_color = calculate_sph_score(planet_data_dict, weights_config.get("habitability", {}))
-    phi_val, phi_color = calculate_phi_score(planet_data_dict, weights_config.get("phi", {}))
+    habitability_weights = weights_config.get("habitability", {})
+    habitability_components = weights_config.get("habitability_components") or habitability_weights
+    phi_weights = weights_config.get("phi", {})
+    phi_components = weights_config.get("phi_components") or phi_weights
+
+    esi_val, esi_color = calculate_esi_score(planet_data_dict, habitability_weights, habitability_components)
+    sph_val, sph_color = calculate_sph_score(planet_data_dict, habitability_weights)
+    phi_val, phi_color = calculate_phi_score(planet_data_dict, phi_weights, phi_components)
     scores_for_report = {"ESI": (esi_val, esi_color), "SPH": (sph_val, sph_color), "PHI": (phi_val, phi_color)}
     logger.debug(f"Basic scores for {planet_name}: {scores_for_report}")
 

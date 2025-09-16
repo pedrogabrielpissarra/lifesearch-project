@@ -51,10 +51,16 @@ def _patch_processing(monkeypatch):
     captured = {}
 
     def mock_process(name, data, weights):
-        captured['habitability'] = weights.get('habitability', {}).copy()
-        captured['phi'] = weights.get('phi', {}).copy()
-        esi, _ = calculate_esi_score(planet_data, captured['habitability'])
-        phi, _ = calculate_phi_score(planet_data, captured['phi'])
+        hab_weights = weights.get('habitability', {})
+        hab_components = weights.get('habitability_components') or hab_weights
+        phi_weights = weights.get('phi', {})
+        phi_components = weights.get('phi_components') or phi_weights
+
+        captured['habitability'] = hab_components.copy()
+        captured['phi'] = phi_components.copy()
+
+        esi, _ = calculate_esi_score(planet_data, hab_weights, hab_components)
+        phi, _ = calculate_phi_score(planet_data, phi_weights, phi_components)
         return {
             'planet_data_dict': {'pl_name': name, 'classification': planet_data['classification']},
             'scores_for_report': {'ESI': (esi, ''), 'PHI': (phi, '')},
@@ -79,8 +85,8 @@ def test_reference_endpoint_returns_baseline_scores(client, monkeypatch):
     }).get_json()
 
     planet = response['planets'][0]
-    expected_esi, _ = calculate_esi_score(planet_data, captured['habitability'])
-    expected_phi, _ = calculate_phi_score(planet_data, captured['phi'])
+    expected_esi, _ = calculate_esi_score(planet_data, captured['habitability'], captured['habitability'])
+    expected_phi, _ = calculate_phi_score(planet_data, captured['phi'], captured['phi'])
     assert pytest.approx(expected_esi, rel=1e-6) == planet['esi']
     assert pytest.approx(expected_phi, rel=1e-6) == planet['phi']
 
@@ -107,7 +113,7 @@ def test_reference_endpoint_lower_weight_decreases_score(client, monkeypatch):
     }).get_json()
 
     planet = response['planets'][0]
-    expected_esi, _ = calculate_esi_score(planet_data, captured['habitability'])
+    expected_esi, _ = calculate_esi_score(planet_data, captured['habitability'], captured['habitability'])
     assert pytest.approx(lowered_value, rel=1e-9) == captured['habitability']['Habitable Zone']
     assert pytest.approx(expected_esi, rel=1e-6) == planet['esi']
     assert planet['esi'] < baseline_esi

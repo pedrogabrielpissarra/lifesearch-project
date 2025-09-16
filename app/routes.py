@@ -209,6 +209,20 @@ def strip_baseline_matches(actuals, baseline, clamp_min, clamp_max):
             trimmed[key] = numeric
     return trimmed
 
+
+def combine_weight_sources(baseline, *overrides, clamp_min=None, clamp_max=None):
+    """Compose weight contributions from baseline and override mappings."""
+
+    combined = {}
+    sources = (baseline,) + overrides
+    for source in sources:
+        for key, value in (source or {}).items():
+            numeric = _normalize_weight_value(value, clamp_min, clamp_max)
+            if numeric is None:
+                continue
+            combined[key] = numeric
+    return combined
+
 from flask import current_app as app
 
 @routes_bp.app_context_processor
@@ -474,17 +488,17 @@ def configure():
         )
         stored_actual = stored_planet_specific_weights.get(normalized_planet_name, {})
         current_planet_specific_weights[normalized_planet_name] = {
-            "habitability": merge_baseline_with_overrides(
+            "habitability": combine_weight_sources(
                 baseline_hab,
                 stored_actual.get("habitability", {}),
-                HAB_WEIGHT_MIN,
-                HAB_WEIGHT_MAX,
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
             ),
-            "phi": merge_baseline_with_overrides(
+            "phi": combine_weight_sources(
                 baseline_phi,
                 stored_actual.get("phi", {}),
-                PHI_WEIGHT_MIN,
-                PHI_WEIGHT_MAX,
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
             ),
         }
 
@@ -601,13 +615,15 @@ def get_planet_reference_values():
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
         
-        baseline_hab = build_weight_baseline(
+        baseline_hab = combine_weight_sources(
             initial_hab_weights_map.get(normalized_planet_name, {}),
-            default_habitability_weights,
+            clamp_min=HAB_WEIGHT_MIN,
+            clamp_max=HAB_WEIGHT_MAX,
         )
-        baseline_phi = build_weight_baseline(
+        baseline_phi = combine_weight_sources(
             initial_phi_weights_map.get(normalized_planet_name, {}),
-            default_phi_weights,
+            clamp_min=PHI_WEIGHT_MIN,
+            clamp_max=PHI_WEIGHT_MAX,
         )
 
         stored_entry = session_planet_weights.get(normalized_planet_name, {}) if session_use_individual else {}
@@ -661,40 +677,51 @@ def get_planet_reference_values():
             )
 
         if session_use_individual or use_individual_weights:
-            effective_hab = stored_hab.copy()
-            effective_hab.update(request_hab)
-            effective_phi = stored_phi.copy()
-            effective_phi.update(request_phi)
-            weights = {
-                "habitability": merge_baseline_with_overrides(
-                    baseline_hab,
-                    effective_hab,
-                    HAB_WEIGHT_MIN,
-                    HAB_WEIGHT_MAX,
-                ),
-                "phi": merge_baseline_with_overrides(
-                    baseline_phi,
-                    effective_phi,
-                    PHI_WEIGHT_MIN,
-                    PHI_WEIGHT_MAX,
-                ),
-            }
+            effective_hab = combine_weight_sources(
+                baseline_hab,
+                stored_hab if session_use_individual else {},
+                request_hab if request_overrides is not None else {},
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            )
+            effective_phi = combine_weight_sources(
+                baseline_phi,
+                stored_phi if session_use_individual else {},
+                request_phi if request_overrides is not None else {},
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            )
         else:
-            weights = {
-                "habitability": merge_baseline_with_overrides(
-                    build_weight_baseline({}, default_habitability_weights),
+            effective_hab = combine_weight_sources(
+                baseline_hab,
+                sanitize_weight_payload(
                     global_habitability_weights,
+                    {},
                     HAB_WEIGHT_MIN,
                     HAB_WEIGHT_MAX,
                 ),
-                "phi": merge_baseline_with_overrides(
-                    build_weight_baseline({}, default_phi_weights),
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            )
+            effective_phi = combine_weight_sources(
+                baseline_phi,
+                sanitize_weight_payload(
                     global_phi_weights,
+                    {},
                     PHI_WEIGHT_MIN,
                     PHI_WEIGHT_MAX,
                 ),
-            }
-        
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            )
+
+        weights = {
+            "habitability": effective_hab,
+            "habitability_components": effective_hab,
+            "phi": effective_phi,
+            "phi_components": effective_phi,
+        }
+
         processed_result = process_planet_data(
             normalized_planet_name,
             combined_data,
@@ -843,13 +870,15 @@ def results():
         if use_individual_weights and normalized_planet_name in individual_planet_weights_map:
             planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
             logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
-            baseline_hab = build_weight_baseline(
+            baseline_hab = combine_weight_sources(
                 initial_hab_weights_map.get(normalized_planet_name, {}),
-                default_habitability_weights,
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
             )
-            baseline_phi = build_weight_baseline(
+            baseline_phi = combine_weight_sources(
                 initial_phi_weights_map.get(normalized_planet_name, {}),
-                default_phi_weights,
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
             )
             sanitized_hab = sanitize_weight_payload(
                 planet_specific_weights_entry.get('habitability', {}),
@@ -863,31 +892,41 @@ def results():
                 PHI_WEIGHT_MIN,
                 PHI_WEIGHT_MAX,
             )
-            current_hab_weights = merge_baseline_with_overrides(
+            current_hab_weights = combine_weight_sources(
                 baseline_hab,
                 sanitized_hab,
-                HAB_WEIGHT_MIN,
-                HAB_WEIGHT_MAX,
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
             )
-            current_phi_weights = merge_baseline_with_overrides(
+            current_phi_weights = combine_weight_sources(
                 baseline_phi,
                 sanitized_phi,
-                PHI_WEIGHT_MIN,
-                PHI_WEIGHT_MAX,
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
             )
         else:
             logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
-            current_hab_weights = merge_baseline_with_overrides(
-                build_weight_baseline({}, default_habitability_weights),
-                global_habitability_weights,
-                HAB_WEIGHT_MIN,
-                HAB_WEIGHT_MAX,
+            current_hab_weights = combine_weight_sources(
+                baseline_hab,
+                sanitize_weight_payload(
+                    global_habitability_weights,
+                    {},
+                    HAB_WEIGHT_MIN,
+                    HAB_WEIGHT_MAX,
+                ),
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
             )
-            current_phi_weights = merge_baseline_with_overrides(
-                build_weight_baseline({}, default_phi_weights),
-                global_phi_weights,
-                PHI_WEIGHT_MIN,
-                PHI_WEIGHT_MAX,
+            current_phi_weights = combine_weight_sources(
+                baseline_phi,
+                sanitize_weight_payload(
+                    global_phi_weights,
+                    {},
+                    PHI_WEIGHT_MIN,
+                    PHI_WEIGHT_MAX,
+                ),
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
             )
 
         logger.info(f"Final habitability weights for '{normalized_planet_name}': {current_hab_weights}")
@@ -896,8 +935,13 @@ def results():
         processed_result = process_planet_data(
             normalized_planet_name,
             combined_data,
-            {"habitability": current_hab_weights, "phi": current_phi_weights}
-        )                   
+            {
+                "habitability": current_hab_weights,
+                "habitability_components": current_hab_weights,
+                "phi": current_phi_weights,
+                "phi_components": current_phi_weights,
+            }
+        )
         
         if not processed_result:
             logger.warning(f"Processing failed or returned no data for {planet_name}. Creating placeholder.")
@@ -1203,8 +1247,16 @@ def save_planet_weights():
     saved_actual_weights = {}
 
     for planet_name, weights in normalized_planet_weights.items():
-        baseline_hab = build_weight_baseline(initial_hab_weights.get(planet_name, {}), default_hab_weights)
-        baseline_phi = build_weight_baseline(initial_phi_weights.get(planet_name, {}), default_phi_weights)
+        baseline_hab = combine_weight_sources(
+            initial_hab_weights.get(planet_name, {}),
+            clamp_min=HAB_WEIGHT_MIN,
+            clamp_max=HAB_WEIGHT_MAX,
+        )
+        baseline_phi = combine_weight_sources(
+            initial_phi_weights.get(planet_name, {}),
+            clamp_min=PHI_WEIGHT_MIN,
+            clamp_max=PHI_WEIGHT_MAX,
+        )
 
         if weights_are_deltas:
             incoming_hab = convert_deltas_to_actuals(
@@ -1233,17 +1285,17 @@ def save_planet_weights():
                 PHI_WEIGHT_MAX,
             )
 
-        actual_hab = merge_baseline_with_overrides(
+        actual_hab = combine_weight_sources(
             baseline_hab,
             incoming_hab,
-            HAB_WEIGHT_MIN,
-            HAB_WEIGHT_MAX,
+            clamp_min=HAB_WEIGHT_MIN,
+            clamp_max=HAB_WEIGHT_MAX,
         )
-        actual_phi = merge_baseline_with_overrides(
+        actual_phi = combine_weight_sources(
             baseline_phi,
             incoming_phi,
-            PHI_WEIGHT_MIN,
-            PHI_WEIGHT_MAX,
+            clamp_min=PHI_WEIGHT_MIN,
+            clamp_max=PHI_WEIGHT_MAX,
         )
 
         saved_actual_weights[planet_name] = {
