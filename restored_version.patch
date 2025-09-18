@@ -1,0 +1,2014 @@
+From 407bbb654e8718ae91e47e2898a7c885c63bd500 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Thu, 18 Sep 2025 15:18:45 +0000
+Subject: [PATCH] Recalculate scores from baseline component overrides
+
+## Summary
+- compose per-planet habitability and PHI maps from baseline similarities and current overrides before invoking the calculators, passing the same component values for rendering and storage
+- extend the ESI and PHI score functions to accept component overrides so zero deltas reproduce the reference values and slider changes recompute from scratch
+- refresh the weight recalculation tests to assert the new override-aware behaviour and storage semantics
+
+## Testing
+- `pytest -q`
+---
+ app/routes.py                      | 608 +++++++++++++++++++----
+ app/templates/configure.html       | 764 ++++++++++++++++++-----------
+ lifesearch/lifesearch_main.py      | 240 ++++++---
+ tests/test_weight_recalculation.py | 185 +++++++
+ 4 files changed, 1322 insertions(+), 475 deletions(-)
+ create mode 100644 tests/test_weight_recalculation.py
+
+diff --git a/app/routes.py b/app/routes.py
+index f6fed81..f095270 100644
+--- a/app/routes.py
++++ b/app/routes.py
+@@ -84,9 +84,144 @@ DEFAULT_PHI_WEIGHTS = {
+     "Life Compounds": 0.25, "Stable Orbit": 0.25
+ }
+ 
+-# Neutral (zero) weights used when no user configuration is provided
+-ZERO_HABITABILITY_WEIGHTS = {k: 0.0 for k in DEFAULT_HABITABILITY_WEIGHTS}
+-ZERO_PHI_WEIGHTS = {k: 0.0 for k in DEFAULT_PHI_WEIGHTS}
++# Neutral (zero) weights used when no user configuration is provided
++ZERO_HABITABILITY_WEIGHTS = {k: 0.0 for k in DEFAULT_HABITABILITY_WEIGHTS}
++ZERO_PHI_WEIGHTS = {k: 0.0 for k in DEFAULT_PHI_WEIGHTS}
++
++# Mapping of possible incoming weight keys to their canonical names
++WEIGHT_KEY_MAP = {
++    "habitable_zone": "Habitable Zone",
++    "size": "Size",
++    "density": "Density",
++    "atmosphere": "Atmosphere",
++    "water": "Water",
++    "presence_of_moons": "Presence of Moons",
++    "magnetic_activity": "Magnetic Activity",
++    "system_age": "System Age",
++    "solid_surface": "Solid Surface",
++    "stable_energy": "Stable Energy",
++    "life_compounds": "Life Compounds",
++    "stable_orbit": "Stable Orbit",
++}
++
++HAB_WEIGHT_MIN, HAB_WEIGHT_MAX = 0.0, 1.0
++PHI_WEIGHT_MIN, PHI_WEIGHT_MAX = 0.0, 0.25
++
++
++def canonicalize_weight_keys(weight_dict):
++    """Normalize incoming weight keys to canonical form."""
++
++    canonical = {}
++    for key, value in (weight_dict or {}).items():
++        lookup = key.lower().replace(" ", "_")
++        canonical_key = WEIGHT_KEY_MAP.get(lookup, key)
++        canonical[canonical_key] = value
++    return canonical
++
++
++def build_weight_baseline(initial_weights, defaults):
++    """Seed a weight dictionary with defaults and per-planet baseline values."""
++
++    baseline = {k: 0.0 for k in defaults}
++    if initial_weights:
++        baseline.update(initial_weights)
++    return baseline
++
++
++def _normalize_weight_value(value, clamp_min, clamp_max):
++    """Coerce a weight to float within the provided bounds."""
++
++    if isinstance(value, str):
++        value = value.strip()
++        if value == "":
++            return None
++    try:
++        numeric = float(value)
++    except (TypeError, ValueError):
++        return None
++    if math.isnan(numeric):
++        return None
++    if clamp_min is not None:
++        numeric = max(clamp_min, numeric)
++    if clamp_max is not None:
++        numeric = min(clamp_max, numeric)
++    return numeric
++
++
++def merge_baseline_with_overrides(baseline, overrides, clamp_min, clamp_max):
++    """Return a weight map seeded from the baseline and replaced by overrides."""
++
++    weights = {}
++    for key, value in (baseline or {}).items():
++        numeric = _normalize_weight_value(value, clamp_min, clamp_max)
++        if numeric is not None:
++            weights[key] = numeric
++    for key, value in (overrides or {}).items():
++        numeric = _normalize_weight_value(value, clamp_min, clamp_max)
++        if numeric is not None:
++            weights[key] = numeric
++    return weights
++
++
++def sanitize_weight_payload(values, baseline, clamp_min, clamp_max):
++    """Sanitize incoming absolute weights before persisting them."""
++
++    if not values:
++        return {}
++    sanitized = {}
++    canonical_values = canonicalize_weight_keys(values)
++    for key, raw_value in canonical_values.items():
++        numeric = _normalize_weight_value(raw_value, clamp_min, clamp_max)
++        if numeric is None:
++            continue
++        sanitized[key] = numeric
++    return sanitized
++
++
++def convert_deltas_to_actuals(deltas, baseline, clamp_min, clamp_max):
++    """Convert delta payloads into absolute weights anchored at the baseline."""
++
++    if not deltas:
++        return {}
++    actuals = {}
++    canonical_deltas = canonicalize_weight_keys(deltas)
++    for key, raw_delta in canonical_deltas.items():
++        delta_value = _normalize_weight_value(raw_delta, None, None)
++        if delta_value is None:
++            continue
++        base_val = _normalize_weight_value(baseline.get(key, 0.0), clamp_min, clamp_max) or 0.0
++        actual_value = _normalize_weight_value(base_val + delta_value, clamp_min, clamp_max)
++        if actual_value is not None:
++            actuals[key] = actual_value
++    return actuals
++
++
++def strip_baseline_matches(actuals, baseline, clamp_min, clamp_max):
++    """Remove entries whose value matches the baseline within tolerance."""
++
++    trimmed = {}
++    for key, value in (actuals or {}).items():
++        numeric = _normalize_weight_value(value, clamp_min, clamp_max)
++        if numeric is None:
++            continue
++        base_val = _normalize_weight_value(baseline.get(key, 0.0), clamp_min, clamp_max) or 0.0
++        if not math.isclose(numeric, base_val, rel_tol=1e-9, abs_tol=1e-9):
++            trimmed[key] = numeric
++    return trimmed
++
++
++def combine_weight_sources(baseline, *overrides, clamp_min=None, clamp_max=None):
++    """Compose weight contributions from baseline and override mappings."""
++
++    combined = {}
++    sources = (baseline,) + overrides
++    for source in sources:
++        for key, value in (source or {}).items():
++            numeric = _normalize_weight_value(value, clamp_min, clamp_max)
++            if numeric is None:
++                continue
++            combined[key] = numeric
++    return combined
+ 
+ from flask import current_app as app
+ 
+@@ -176,9 +311,9 @@ def configure():
+ 
+     default_hab_weights = DEFAULT_HABITABILITY_WEIGHTS
+     default_phi_weights = DEFAULT_PHI_WEIGHTS
+-    current_global_hab_weights = session.get("habitability_weights", ZERO_HABITABILITY_WEIGHTS)
+-    current_global_phi_weights = session.get("phi_weights", ZERO_PHI_WEIGHTS)
+-    current_planet_specific_weights = session.get("planet_weights", {})
++    current_global_hab_weights = session.get("habitability_weights", ZERO_HABITABILITY_WEIGHTS)
++    current_global_phi_weights = session.get("phi_weights", ZERO_PHI_WEIGHTS)
++    stored_planet_specific_weights = session.get("planet_weights", {})
+     use_individual = session.get("use_individual_weights", False)
+ 
+     reference_values = []
+@@ -339,9 +474,37 @@ def configure():
+                     for factor_name in phi_factors:
+                         initial_phi_weights[normalized_planet_name][factor_name] = phi_target / len(phi_factors) if phi_val > 0 else 0.0
+ 
+-    session['initial_hab_weights'] = initial_hab_weights
+-    session['initial_phi_weights'] = initial_phi_weights
+-    session.modified = True
++    planets_for_display = {normalize_name(name) for name in planet_names_list}
++    planets_for_display.update(stored_planet_specific_weights.keys())
++    current_planet_specific_weights = {}
++    for normalized_planet_name in planets_for_display:
++        baseline_hab = build_weight_baseline(
++            initial_hab_weights.get(normalized_planet_name, {}),
++            DEFAULT_HABITABILITY_WEIGHTS,
++        )
++        baseline_phi = build_weight_baseline(
++            initial_phi_weights.get(normalized_planet_name, {}),
++            DEFAULT_PHI_WEIGHTS,
++        )
++        stored_actual = stored_planet_specific_weights.get(normalized_planet_name, {})
++        current_planet_specific_weights[normalized_planet_name] = {
++            "habitability": combine_weight_sources(
++                baseline_hab,
++                stored_actual.get("habitability", {}),
++                clamp_min=HAB_WEIGHT_MIN,
++                clamp_max=HAB_WEIGHT_MAX,
++            ),
++            "phi": combine_weight_sources(
++                baseline_phi,
++                stored_actual.get("phi", {}),
++                clamp_min=PHI_WEIGHT_MIN,
++                clamp_max=PHI_WEIGHT_MAX,
++            ),
++        }
++
++    session['initial_hab_weights'] = initial_hab_weights
++    session['initial_phi_weights'] = initial_phi_weights
++    session.modified = True
+ 
+     logger.info(f"Configure: reference_values = {reference_values}")
+     logger.info(f"Configure: initial_hab_weights = {initial_hab_weights}")
+@@ -358,7 +521,7 @@ def configure():
+         default_phi_weights_json=json.dumps(default_phi_weights),
+         current_global_hab_weights_json=json.dumps(current_global_hab_weights),
+         current_global_phi_weights_json=json.dumps(current_global_phi_weights),
+-        current_planet_specific_weights_json=json.dumps(current_planet_specific_weights),
++        current_planet_specific_weights_json=json.dumps(current_planet_specific_weights),
+         use_individual_weights_val=use_individual,
+         initial_hab_weights_json=json.dumps(initial_hab_weights),
+         initial_phi_weights_json=json.dumps(initial_phi_weights)
+@@ -402,22 +565,34 @@ def get_planet_reference_values():
+     if not planet_names_list:
+         return jsonify({"planets": []})
+     
+-    use_individual_weights = False
+-    planet_weights = {}
+-    if request.method == "POST":
+-        data = request.json or {}
+-        use_individual_weights = data.get("use_individual_weights", False)
+-        planet_weights = data.get("planet_weights", {})
+-        logger.info(f"API reference_values - POST data: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
+-        if use_individual_weights and not planet_weights:
+-            use_individual_weights = False
+-    
+-    default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
+-    default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
+-    zero_habitability_weights = {k: 0.0 for k in default_habitability_weights}
+-    zero_phi_weights = {k: 0.0 for k in default_phi_weights}
+-    global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
+-    global_phi_weights = session.get("phi_weights", zero_phi_weights)
++    use_individual_weights = False
++    weights_are_deltas = False
++    planet_weights = {}
++    if request.method == "POST":
++        data = request.json or {}
++        use_individual_weights = data.get("use_individual_weights", False)
++        weights_are_deltas = data.get("weights_are_deltas", False)
++        raw_planet_weights = data.get("planet_weights", {})
++        # Normalize incoming planet names so lookups match stored session keys
++        planet_weights = {
++            normalize_name(name): weights for name, weights in raw_planet_weights.items()
++        }
++        logger.info(
++            "API reference_values - POST data: use_individual_weights=%s, planet_weights=%s",
++            use_individual_weights,
++            planet_weights,
++        )
++    
++    default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
++    default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
++    zero_habitability_weights = {k: 0.0 for k in default_habitability_weights}
++    zero_phi_weights = {k: 0.0 for k in default_phi_weights}
++    global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
++    global_phi_weights = session.get("phi_weights", zero_phi_weights)
++    session_planet_weights = session.get("planet_weights", {})
++    session_use_individual = session.get('use_individual_weights', False)
++    initial_hab_weights_map = session.get('initial_hab_weights', {})
++    initial_phi_weights_map = session.get('initial_phi_weights', {})
+     
+     logger.info(f"API reference_values - Global weights: hab={global_habitability_weights}, phi={global_phi_weights}")
+     
+@@ -440,20 +615,117 @@ def get_planet_reference_values():
+         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
+         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
+         
+-        weights = {
+-            "habitability": global_habitability_weights,
+-            "phi": global_phi_weights
+-        }
+-        if use_individual_weights and normalized_planet_name in planet_weights:
+-            planet_specific_weights = planet_weights.get(normalized_planet_name, {})
+-            weights["habitability"] = planet_specific_weights.get("habitability", global_habitability_weights)
+-            weights["phi"] = planet_specific_weights.get("phi", global_phi_weights)
+-            logger.info(f"Using individual weights for {normalized_planet_name}: {planet_specific_weights}")
+-        
+-        processed_result = process_planet_data(
+-            normalized_planet_name,
+-            combined_data,
+-            weights
++        baseline_hab = combine_weight_sources(
++            initial_hab_weights_map.get(normalized_planet_name, {}),
++            clamp_min=HAB_WEIGHT_MIN,
++            clamp_max=HAB_WEIGHT_MAX,
++        )
++        baseline_phi = combine_weight_sources(
++            initial_phi_weights_map.get(normalized_planet_name, {}),
++            clamp_min=PHI_WEIGHT_MIN,
++            clamp_max=PHI_WEIGHT_MAX,
++        )
++
++        stored_entry = session_planet_weights.get(normalized_planet_name, {}) if session_use_individual else {}
++        stored_hab = sanitize_weight_payload(
++            stored_entry.get('habitability', {}),
++            baseline_hab,
++            HAB_WEIGHT_MIN,
++            HAB_WEIGHT_MAX,
++        )
++        stored_phi = sanitize_weight_payload(
++            stored_entry.get('phi', {}),
++            baseline_phi,
++            PHI_WEIGHT_MIN,
++            PHI_WEIGHT_MAX,
++        )
++
++        request_overrides = planet_weights.get(normalized_planet_name) if use_individual_weights else None
++        request_hab = {}
++        request_phi = {}
++        if request_overrides is not None:
++            if weights_are_deltas:
++                request_hab = convert_deltas_to_actuals(
++                    request_overrides.get('habitability', {}),
++                    baseline_hab,
++                    HAB_WEIGHT_MIN,
++                    HAB_WEIGHT_MAX,
++                )
++                request_phi = convert_deltas_to_actuals(
++                    request_overrides.get('phi', {}),
++                    baseline_phi,
++                    PHI_WEIGHT_MIN,
++                    PHI_WEIGHT_MAX,
++                )
++            else:
++                request_hab = sanitize_weight_payload(
++                    request_overrides.get('habitability', {}),
++                    baseline_hab,
++                    HAB_WEIGHT_MIN,
++                    HAB_WEIGHT_MAX,
++                )
++                request_phi = sanitize_weight_payload(
++                    request_overrides.get('phi', {}),
++                    baseline_phi,
++                    PHI_WEIGHT_MIN,
++                    PHI_WEIGHT_MAX,
++                )
++            logger.info(
++                "Using individual weights for %s: overrides=%s",
++                normalized_planet_name,
++                {'habitability': request_hab, 'phi': request_phi},
++            )
++
++        if session_use_individual or use_individual_weights:
++            effective_hab = combine_weight_sources(
++                baseline_hab,
++                stored_hab if session_use_individual else {},
++                request_hab if request_overrides is not None else {},
++                clamp_min=HAB_WEIGHT_MIN,
++                clamp_max=HAB_WEIGHT_MAX,
++            )
++            effective_phi = combine_weight_sources(
++                baseline_phi,
++                stored_phi if session_use_individual else {},
++                request_phi if request_overrides is not None else {},
++                clamp_min=PHI_WEIGHT_MIN,
++                clamp_max=PHI_WEIGHT_MAX,
++            )
++        else:
++            effective_hab = combine_weight_sources(
++                baseline_hab,
++                sanitize_weight_payload(
++                    global_habitability_weights,
++                    {},
++                    HAB_WEIGHT_MIN,
++                    HAB_WEIGHT_MAX,
++                ),
++                clamp_min=HAB_WEIGHT_MIN,
++                clamp_max=HAB_WEIGHT_MAX,
++            )
++            effective_phi = combine_weight_sources(
++                baseline_phi,
++                sanitize_weight_payload(
++                    global_phi_weights,
++                    {},
++                    PHI_WEIGHT_MIN,
++                    PHI_WEIGHT_MAX,
++                ),
++                clamp_min=PHI_WEIGHT_MIN,
++                clamp_max=PHI_WEIGHT_MAX,
++            )
++
++        weights = {
++            "habitability": effective_hab,
++            "habitability_components": effective_hab,
++            "phi": effective_phi,
++            "phi_components": effective_phi,
++        }
++
++        processed_result = process_planet_data(
++            normalized_planet_name,
++            combined_data,
++            weights
+         )
+         
+         if processed_result:
+@@ -511,17 +783,19 @@ def results():
+     
+     logger.info(f"Results: Full session content: {dict(session)}")
+     
+-    default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
+-    default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
+-    zero_habitability_weights = {k: 0.0 for k in default_habitability_weights}
+-    zero_phi_weights = {k: 0.0 for k in default_phi_weights}
+-    global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
+-    global_phi_weights = session.get("phi_weights", zero_phi_weights)
+-
+-    use_individual_weights = session.get('use_individual_weights', False)
+-    individual_planet_weights_map = session.get('planet_weights', {}) 
+-    logger.info(f"Results: use_individual_weights={use_individual_weights}, individual_planet_weights_map={individual_planet_weights_map}")
+-    logger.info(f"Results: individual_planet_weights_map keys={list(individual_planet_weights_map.keys())}")
++    default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
++    default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
++    zero_habitability_weights = {k: 0.0 for k in default_habitability_weights}
++    zero_phi_weights = {k: 0.0 for k in default_phi_weights}
++    global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
++    global_phi_weights = session.get("phi_weights", zero_phi_weights)
++
++    use_individual_weights = session.get('use_individual_weights', False)
++    individual_planet_weights_map = session.get('planet_weights', {})
++    logger.info(f"Results: use_individual_weights={use_individual_weights}, individual_planet_weights_map={individual_planet_weights_map}")
++    logger.info(f"Results: individual_planet_weights_map keys={list(individual_planet_weights_map.keys())}")
++    initial_hab_weights_map = session.get('initial_hab_weights', {})
++    initial_phi_weights_map = session.get('initial_phi_weights', {})
+ 
+     if not planet_names_list:
+         flash("No planets to process. Please perform a new search.", "warning")
+@@ -593,24 +867,81 @@ def results():
+         logger.info(f"Normalized planet name: '{planet_name}' -> '{normalized_planet_name}'")
+         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
+ 
+-        if use_individual_weights and normalized_planet_name in individual_planet_weights_map:
+-            planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
+-            logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
+-            current_hab_weights = planet_specific_weights_entry.get('habitability', global_habitability_weights)
+-            current_phi_weights = planet_specific_weights_entry.get('phi', global_phi_weights)
+-        else:
+-            logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
+-            current_hab_weights = global_habitability_weights
+-            current_phi_weights = global_phi_weights
+-
+-        logger.info(f"Final habitability weights for '{normalized_planet_name}': {current_hab_weights}")
+-        logger.info(f"Final PHI weights for '{normalized_planet_name}': {current_phi_weights}")
+-
+-        processed_result = process_planet_data(
+-            normalized_planet_name,
+-            combined_data,
+-            {"habitability": current_hab_weights, "phi": current_phi_weights}
+-        )                   
++        if use_individual_weights and normalized_planet_name in individual_planet_weights_map:
++            planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
++            logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
++            baseline_hab = combine_weight_sources(
++                initial_hab_weights_map.get(normalized_planet_name, {}),
++                clamp_min=HAB_WEIGHT_MIN,
++                clamp_max=HAB_WEIGHT_MAX,
++            )
++            baseline_phi = combine_weight_sources(
++                initial_phi_weights_map.get(normalized_planet_name, {}),
++                clamp_min=PHI_WEIGHT_MIN,
++                clamp_max=PHI_WEIGHT_MAX,
++            )
++            sanitized_hab = sanitize_weight_payload(
++                planet_specific_weights_entry.get('habitability', {}),
++                baseline_hab,
++                HAB_WEIGHT_MIN,
++                HAB_WEIGHT_MAX,
++            )
++            sanitized_phi = sanitize_weight_payload(
++                planet_specific_weights_entry.get('phi', {}),
++                baseline_phi,
++                PHI_WEIGHT_MIN,
++                PHI_WEIGHT_MAX,
++            )
++            current_hab_weights = combine_weight_sources(
++                baseline_hab,
++                sanitized_hab,
++                clamp_min=HAB_WEIGHT_MIN,
++                clamp_max=HAB_WEIGHT_MAX,
++            )
++            current_phi_weights = combine_weight_sources(
++                baseline_phi,
++                sanitized_phi,
++                clamp_min=PHI_WEIGHT_MIN,
++                clamp_max=PHI_WEIGHT_MAX,
++            )
++        else:
++            logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
++            current_hab_weights = combine_weight_sources(
++                baseline_hab,
++                sanitize_weight_payload(
++                    global_habitability_weights,
++                    {},
++                    HAB_WEIGHT_MIN,
++                    HAB_WEIGHT_MAX,
++                ),
++                clamp_min=HAB_WEIGHT_MIN,
++                clamp_max=HAB_WEIGHT_MAX,
++            )
++            current_phi_weights = combine_weight_sources(
++                baseline_phi,
++                sanitize_weight_payload(
++                    global_phi_weights,
++                    {},
++                    PHI_WEIGHT_MIN,
++                    PHI_WEIGHT_MAX,
++                ),
++                clamp_min=PHI_WEIGHT_MIN,
++                clamp_max=PHI_WEIGHT_MAX,
++            )
++
++        logger.info(f"Final habitability weights for '{normalized_planet_name}': {current_hab_weights}")
++        logger.info(f"Final PHI weights for '{normalized_planet_name}': {current_phi_weights}")
++
++        processed_result = process_planet_data(
++            normalized_planet_name,
++            combined_data,
++            {
++                "habitability": current_hab_weights,
++                "habitability_components": current_hab_weights,
++                "phi": current_phi_weights,
++                "phi_components": current_phi_weights,
++            }
++        )
+         
+         if not processed_result:
+             logger.warning(f"Processing failed or returned no data for {planet_name}. Creating placeholder.")
+@@ -888,8 +1219,9 @@ def save_planet_weights():
+         flask.Response: JSON response indicating the status of the operation.
+     """
+     data = request.json
+-    use_individual_weights = data.get('use_individual_weights', False)
+-    planet_weights = data.get('planet_weights', {})
++    use_individual_weights = data.get('use_individual_weights', False)
++    planet_weights = data.get('planet_weights', {})
++    weights_are_deltas = data.get('weights_are_deltas', False)
+ 
+     logger.info(f"API save-planet-weights - Raw input: {data}")
+ 
+@@ -901,41 +1233,105 @@ def save_planet_weights():
+ 
+     logger.info(f"API save-planet-weights - Normalized planet_weights: {normalized_planet_weights}")
+ 
+-    initial_hab_weights = session.get('initial_hab_weights', {})
+-    initial_phi_weights = session.get('initial_phi_weights', {})
+-
+-    filtered_planet_weights = {}
+-    for planet_name, weights in normalized_planet_weights.items():
+-        hab_weights = weights.get('habitability', {})
+-        phi_weights = weights.get('phi', {})
+-        filtered_hab = {}
+-        filtered_phi = {}
+-        for key, value in hab_weights.items():
+-            if not math.isclose(value, initial_hab_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
+-                filtered_hab[key] = value
+-        for key, value in phi_weights.items():
+-            if not math.isclose(value, initial_phi_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
+-                filtered_phi[key] = value
+-        if filtered_hab or filtered_phi:
+-            filtered_planet_weights[planet_name] = {}
+-            if filtered_hab:
+-                filtered_planet_weights[planet_name]['habitability'] = filtered_hab
+-            if filtered_phi:
+-                filtered_planet_weights[planet_name]['phi'] = filtered_phi
+-
+-    if use_individual_weights and filtered_planet_weights:
+-        existing_weights = session.get('planet_weights', {})
+-        existing_weights.update(filtered_planet_weights)
+-        session['planet_weights'] = existing_weights
+-        session['use_individual_weights'] = True
+-        session.modified = True
+-        logger.info(f"API save-planet-weights - Saved to session: planet_weights={session['planet_weights']}")
+-        logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
+-    else:
+-        session.pop('planet_weights', None)
+-        session['use_individual_weights'] = False
+-
+-    return jsonify({'status': 'success', 'saved_weights': filtered_planet_weights})
++    default_hab_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
++    default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
++    initial_hab_weights = session.get('initial_hab_weights', {})
++    initial_phi_weights = session.get('initial_phi_weights', {})
++
++    existing_session_weights = session.get('planet_weights', {})
++    updated_session_weights = {
++        planet: {category: values.copy() for category, values in overrides.items()}
++        for planet, overrides in existing_session_weights.items()
++    }
++
++    saved_actual_weights = {}
++
++    for planet_name, weights in normalized_planet_weights.items():
++        baseline_hab = combine_weight_sources(
++            initial_hab_weights.get(planet_name, {}),
++            clamp_min=HAB_WEIGHT_MIN,
++            clamp_max=HAB_WEIGHT_MAX,
++        )
++        baseline_phi = combine_weight_sources(
++            initial_phi_weights.get(planet_name, {}),
++            clamp_min=PHI_WEIGHT_MIN,
++            clamp_max=PHI_WEIGHT_MAX,
++        )
++
++        if weights_are_deltas:
++            incoming_hab = convert_deltas_to_actuals(
++                weights.get('habitability', {}),
++                baseline_hab,
++                HAB_WEIGHT_MIN,
++                HAB_WEIGHT_MAX,
++            )
++            incoming_phi = convert_deltas_to_actuals(
++                weights.get('phi', {}),
++                baseline_phi,
++                PHI_WEIGHT_MIN,
++                PHI_WEIGHT_MAX,
++            )
++        else:
++            incoming_hab = sanitize_weight_payload(
++                weights.get('habitability', {}),
++                baseline_hab,
++                HAB_WEIGHT_MIN,
++                HAB_WEIGHT_MAX,
++            )
++            incoming_phi = sanitize_weight_payload(
++                weights.get('phi', {}),
++                baseline_phi,
++                PHI_WEIGHT_MIN,
++                PHI_WEIGHT_MAX,
++            )
++
++        actual_hab = combine_weight_sources(
++            baseline_hab,
++            incoming_hab,
++            clamp_min=HAB_WEIGHT_MIN,
++            clamp_max=HAB_WEIGHT_MAX,
++        )
++        actual_phi = combine_weight_sources(
++            baseline_phi,
++            incoming_phi,
++            clamp_min=PHI_WEIGHT_MIN,
++            clamp_max=PHI_WEIGHT_MAX,
++        )
++
++        saved_actual_weights[planet_name] = {
++            'habitability': actual_hab,
++            'phi': actual_phi,
++        }
++
++        planet_entry = {}
++        trimmed_hab = strip_baseline_matches(actual_hab, baseline_hab, HAB_WEIGHT_MIN, HAB_WEIGHT_MAX)
++        trimmed_phi = strip_baseline_matches(actual_phi, baseline_phi, PHI_WEIGHT_MIN, PHI_WEIGHT_MAX)
++        if trimmed_hab:
++            planet_entry['habitability'] = trimmed_hab
++        if trimmed_phi:
++            planet_entry['phi'] = trimmed_phi
++
++        if planet_entry:
++            updated_session_weights[planet_name] = planet_entry
++        else:
++            updated_session_weights.pop(planet_name, None)
++
++    if use_individual_weights:
++        session['use_individual_weights'] = True
++        if updated_session_weights:
++            session['planet_weights'] = updated_session_weights
++        else:
++            session.pop('planet_weights', None)
++    else:
++        session.pop('planet_weights', None)
++        session['use_individual_weights'] = False
++
++    session.modified = True
++    logger.info(f"API save-planet-weights - Saved to session: planet_weights={session.get('planet_weights')}")
++    logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
++
++    saved_subset = {p: saved_actual_weights.get(p, {}) for p in normalized_planet_weights.keys()}
++    return jsonify({'status': 'success', 'saved_weights': saved_subset})
+ 
+ @routes_bp.route('/api/debug-session', methods=['GET'])
+ def debug_session():
+diff --git a/app/templates/configure.html b/app/templates/configure.html
+index 0bcbb50..3ba6ed0 100644
+--- a/app/templates/configure.html
++++ b/app/templates/configure.html
+@@ -83,18 +83,18 @@ function normalizePlanetName(name) {
+ // Data passed from Flask, parsed into JavaScript objects
+ const DEFAULT_HAB_WEIGHTS = JSON.parse('{{ default_hab_weights_json|safe }}');
+ const DEFAULT_PHI_WEIGHTS = JSON.parse('{{ default_phi_weights_json|safe }}');
+-const CURRENT_GLOBAL_HAB_WEIGHTS = JSON.parse('{{ current_global_hab_weights_json|safe }}');
+-const CURRENT_GLOBAL_PHI_WEIGHTS = JSON.parse('{{ current_global_phi_weights_json|safe }}');
+-const CURRENT_PLANET_SPECIFIC_WEIGHTS = JSON.parse('{{ current_planet_specific_weights_json|safe }}');
++const CURRENT_GLOBAL_HAB_WEIGHTS = JSON.parse('{{ current_global_hab_weights_json|safe }}');
++const CURRENT_GLOBAL_PHI_WEIGHTS = JSON.parse('{{ current_global_phi_weights_json|safe }}');
++let CURRENT_PLANET_SPECIFIC_WEIGHTS = JSON.parse('{{ current_planet_specific_weights_json|safe }}');
+ const INITIAL_HAB_WEIGHTS = JSON.parse('{{ initial_hab_weights_json|safe }}');
+ const INITIAL_PHI_WEIGHTS = JSON.parse('{{ initial_phi_weights_json|safe }}');
+ const USE_INDIVIDUAL_WEIGHTS_ON_LOAD = {{ use_individual_weights_val|lower }};
+ 
+-document.addEventListener('DOMContentLoaded', function() {
+-    const weightDescriptions = {
+-        'habitable_zone': 'How important is the planet\'s position in the habitable zone.',
+-        'size': 'How important is the planet\'s size relative to Earth.',
+-        'density': 'How important is the planet\'s density relative to Earth.',
++document.addEventListener('DOMContentLoaded', function() {
++    const weightDescriptions = {
++        'habitable_zone': 'How important is the planet\'s position in the habitable zone.',
++        'size': 'How important is the planet\'s size relative to Earth.',
++        'density': 'How important is the planet\'s density relative to Earth.',
+         'atmosphere': 'How important is the potential for an atmosphere.',
+         'water': 'How important is the potential for liquid water.',
+         'presence_of_moons': 'How important is the presence of moons for habitability.',
+@@ -102,27 +102,31 @@ document.addEventListener('DOMContentLoaded', function() {
+         'system_age': 'How important is the age of the star system.',
+         'solid_surface': 'How important is a solid surface for habitability (PHI).',
+         'stable_energy': 'How important is stable energy from the star (PHI).',
+-        'life_compounds': 'How important are compounds necessary for life (PHI).',
+-        'stable_orbit': 'How important is a stable orbit (PHI).'
+-    };
+-
+-    const habFactorDefinitions = [
+-        { key: 'habitable_zone', label: 'Habitable Zone', defaultVal: DEFAULT_HAB_WEIGHTS['Habitable Zone'] || 1.0, min: 0, max: 1, step: 0.01 },
+-        { key: 'size', label: 'Size', defaultVal: DEFAULT_HAB_WEIGHTS['Size'] || 1.0, min: 0, max: 1, step: 0.01 },
+-        { key: 'density', label: 'Density', defaultVal: DEFAULT_HAB_WEIGHTS['Density'] || 1.0, min: 0, max: 1, step: 0.01 },
+-        { key: 'atmosphere', label: 'Atmosphere', defaultVal: DEFAULT_HAB_WEIGHTS['Atmosphere'] || 1.0, min: 0, max: 1, step: 0.01 },
+-        { key: 'water', label: 'Water', defaultVal: DEFAULT_HAB_WEIGHTS['Water'] || 1.0, min: 0, max: 1, step: 0.01 },
+-        { key: 'presence_of_moons', label: 'Presence of Moons', defaultVal: DEFAULT_HAB_WEIGHTS['Presence of Moons'] || 1.0, min: 0, max: 1, step: 0.01 },
+-        { key: 'magnetic_activity', label: 'Magnetic Activity', defaultVal: DEFAULT_HAB_WEIGHTS['Magnetic Activity'] || 1.0, min: 0, max: 1, step: 0.01 },
+-        { key: 'system_age', label: 'System Age', defaultVal: DEFAULT_HAB_WEIGHTS['System Age'] || 1.0, min: 0, max: 1, step: 0.01 }
+-    ];
+-
+-    const phiFactorDefinitions = [
+-        { key: 'solid_surface', label: 'Solid Surface', defaultVal: DEFAULT_PHI_WEIGHTS['Solid Surface'] || 0.25, min: 0, max: 0.25, step: 0.01 },
+-        { key: 'stable_energy', label: 'Stable Energy', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Energy'] || 0.25, min: 0, max: 0.25, step: 0.01 },
+-        { key: 'life_compounds', label: 'Life Compounds', defaultVal: DEFAULT_PHI_WEIGHTS['Life Compounds'] || 0.25, min: 0, max: 0.25, step: 0.01 },
+-        { key: 'stable_orbit', label: 'Stable Orbit', defaultVal: DEFAULT_PHI_WEIGHTS['Stable Orbit'] || 0.25, min: 0, max: 0.25, step: 0.01 }
+-    ];
++        'life_compounds': 'How important are compounds necessary for life (PHI).',
++        'stable_orbit': 'How important is a stable orbit (PHI).'
++    };
++
++    if (!CURRENT_PLANET_SPECIFIC_WEIGHTS || typeof CURRENT_PLANET_SPECIFIC_WEIGHTS !== 'object') {
++        CURRENT_PLANET_SPECIFIC_WEIGHTS = {};
++    }
++
++    const habFactorDefinitions = [
++        { key: 'habitable_zone', label: 'Habitable Zone', absMin: 0, absMax: 1, step: 0.01 },
++        { key: 'size', label: 'Size', absMin: 0, absMax: 1, step: 0.01 },
++        { key: 'density', label: 'Density', absMin: 0, absMax: 1, step: 0.01 },
++        { key: 'atmosphere', label: 'Atmosphere', absMin: 0, absMax: 1, step: 0.01 },
++        { key: 'water', label: 'Water', absMin: 0, absMax: 1, step: 0.01 },
++        { key: 'presence_of_moons', label: 'Presence of Moons', absMin: 0, absMax: 1, step: 0.01 },
++        { key: 'magnetic_activity', label: 'Magnetic Activity', absMin: 0, absMax: 1, step: 0.01 },
++        { key: 'system_age', label: 'System Age', absMin: 0, absMax: 1, step: 0.01 }
++    ];
++
++    const phiFactorDefinitions = [
++        { key: 'solid_surface', label: 'Solid Surface', absMin: 0, absMax: 0.25, step: 0.01 },
++        { key: 'stable_energy', label: 'Stable Energy', absMin: 0, absMax: 0.25, step: 0.01 },
++        { key: 'life_compounds', label: 'Life Compounds', absMin: 0, absMax: 0.25, step: 0.01 },
++        { key: 'stable_orbit', label: 'Stable Orbit', absMin: 0, absMax: 0.25, step: 0.01 }
++    ];
+ 
+     const useIndividualWeightsCheckbox = document.getElementById('use-individual-weights');
+     const planetWeightsContainer = document.getElementById('planet-weights-container');
+@@ -148,42 +152,172 @@ document.addEventListener('DOMContentLoaded', function() {
+         });
+     }
+ 
+-    function getWeightValue(planetNormalizedName, category, weightKey) {
+-        const factorDef = (category === 'hab' ? habFactorDefinitions : phiFactorDefinitions).find(f => f.key === weightKey);
+-        if (!factorDef) {
+-            console.warn(`Factor definition not found for key: ${weightKey} in category: ${category}`);
+-            return (category === 'hab' ? 1.0 : 0.25);
+-        }
+-
+-        const displayNameKey = factorDef.label;
+-
+-        // Usar pesos iniciais para habitability ou PHI
+-        if (category === 'hab' && INITIAL_HAB_WEIGHTS[planetNormalizedName] && INITIAL_HAB_WEIGHTS[planetNormalizedName][displayNameKey] !== undefined) {
+-            console.log(`Using INITIAL_HAB_WEIGHTS for ${planetNormalizedName}, ${displayNameKey}: ${INITIAL_HAB_WEIGHTS[planetNormalizedName][displayNameKey]}`);
+-            return INITIAL_HAB_WEIGHTS[planetNormalizedName][displayNameKey];
+-        }
+-        if (category === 'phi' && INITIAL_PHI_WEIGHTS[planetNormalizedName] && INITIAL_PHI_WEIGHTS[planetNormalizedName][displayNameKey] !== undefined) {
+-            console.log(`Using INITIAL_PHI_WEIGHTS for ${planetNormalizedName}, ${displayNameKey}: ${INITIAL_PHI_WEIGHTS[planetNormalizedName][displayNameKey]}`);
+-            return INITIAL_PHI_WEIGHTS[planetNormalizedName][displayNameKey];
+-        }
+-
+-        if (CURRENT_PLANET_SPECIFIC_WEIGHTS &&
+-            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] &&
+-            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category] &&
+-            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey] !== undefined) {
+-            console.log(`Using CURRENT_PLANET_SPECIFIC_WEIGHTS for ${planetNormalizedName}, ${displayNameKey}: ${CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey]}`);
+-            return CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName][category][displayNameKey];
+-        }
+-
+-        const globalCategoryWeights = category === 'hab' ? CURRENT_GLOBAL_HAB_WEIGHTS : CURRENT_GLOBAL_PHI_WEIGHTS;
+-        if (globalCategoryWeights && globalCategoryWeights[displayNameKey] !== undefined) {
+-            console.log(`Using global weights for ${planetNormalizedName}, ${displayNameKey}: ${globalCategoryWeights[displayNameKey]}`);
+-            return globalCategoryWeights[displayNameKey];
+-        }
+-        
+-        console.log(`Using default value for ${planetNormalizedName}, ${displayNameKey}: ${factorDef.defaultVal}`);
+-        return factorDef.defaultVal;
+-    }
++    function roundToStep(value, step) {
++        const numericStep = Number(step);
++        const numericValue = Number(value);
++        if (!Number.isFinite(numericValue)) {
++            return 0;
++        }
++        if (!Number.isFinite(numericStep) || numericStep <= 0) {
++            return numericValue;
++        }
++        const inverse = 1 / numericStep;
++        return Math.round(numericValue * inverse) / inverse;
++    }
++
++    function clampValue(value, min, max) {
++        let numeric = Number(value);
++        if (!Number.isFinite(numeric)) {
++            numeric = 0;
++        }
++        if (Number.isFinite(min)) {
++            numeric = Math.max(numeric, min);
++        }
++        if (Number.isFinite(max)) {
++            numeric = Math.min(numeric, max);
++        }
++        return numeric;
++    }
++
++    function formatWeight(value, digits = 4) {
++        const numeric = Number(value);
++        if (!Number.isFinite(numeric)) {
++            return (0).toFixed(digits);
++        }
++        return numeric.toFixed(digits);
++    }
++
++    function formatSigned(value, digits = 2) {
++        const numeric = Number(value);
++        if (!Number.isFinite(numeric)) {
++            return '+0.00';
++        }
++        const rounded = numeric.toFixed(digits);
++        if (numeric > 0) {
++            return `+${rounded}`;
++        }
++        if (numeric === 0) {
++            return `+${rounded}`;
++        }
++        return rounded;
++    }
++
++    function getBaselineWeight(planetNormalizedName, category, displayNameKey) {
++        const source = category === 'hab' ? INITIAL_HAB_WEIGHTS : INITIAL_PHI_WEIGHTS;
++        const planetMap = source[planetNormalizedName] || {};
++        if (planetMap[displayNameKey] !== undefined) {
++            return Number(planetMap[displayNameKey]);
++        }
++        const defaults = category === 'hab' ? DEFAULT_HAB_WEIGHTS : DEFAULT_PHI_WEIGHTS;
++        const fallback = defaults[displayNameKey];
++        return fallback !== undefined ? Number(fallback) : 0.0;
++    }
++
++    function getEffectiveWeight(planetNormalizedName, category, displayNameKey, baselineValue) {
++        const savedPlanetWeights = (CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] || {})[category] || {};
++        if (savedPlanetWeights[displayNameKey] !== undefined) {
++            const numeric = Number(savedPlanetWeights[displayNameKey]);
++            if (Number.isFinite(numeric)) {
++                return numeric;
++            }
++        }
++        const globalCategoryWeights = category === 'hab' ? CURRENT_GLOBAL_HAB_WEIGHTS : CURRENT_GLOBAL_PHI_WEIGHTS;
++        if (!USE_INDIVIDUAL_WEIGHTS_ON_LOAD && globalCategoryWeights && globalCategoryWeights[displayNameKey] !== undefined) {
++            const numeric = Number(globalCategoryWeights[displayNameKey]);
++            if (Number.isFinite(numeric)) {
++                return numeric;
++            }
++        }
++        return baselineValue;
++    }
++
++    function computeDeltaRange(baseline, absMin, absMax, step) {
++        const deltaMinRaw = absMin - baseline;
++        const deltaMaxRaw = absMax - baseline;
++        const deltaMin = roundToStep(deltaMinRaw, step);
++        const deltaMax = roundToStep(deltaMaxRaw, step);
++        const span = deltaMax - deltaMin;
++        const zeroPosition = span === 0 ? 0 : ((0 - deltaMin) / span) * 100;
++        const clampedZero = Math.min(100, Math.max(0, zeroPosition));
++        return { deltaMin, deltaMax, zeroPercent: clampedZero };
++    }
++
++    function updateEffectiveDisplay(sliderEl, deltaValue) {
++        if (!sliderEl) return;
++        const control = sliderEl.closest('.weight-control');
++        if (!control) return;
++        const baseline = Number(sliderEl.dataset.baseline) || 0;
++        const absMin = Number(sliderEl.dataset.absMin);
++        const absMax = Number(sliderEl.dataset.absMax);
++        const step = Number(sliderEl.step || '0.01');
++        const clampedDelta = clampValue(roundToStep(deltaValue, step), Number(sliderEl.min), Number(sliderEl.max));
++        const effective = clampValue(baseline + clampedDelta, absMin, absMax);
++        const output = control.querySelector('[data-effective-output]');
++        if (output) {
++            output.textContent = `Effective: ${formatWeight(effective)} (Δ ${formatSigned(clampedDelta)})`;
++        }
++    }
++
++    function initializeEffectiveDisplays() {
++        document.querySelectorAll('.planet-weight-slider').forEach(slider => {
++            const currentDelta = Number(slider.value) || 0;
++            updateEffectiveDisplay(slider, currentDelta);
++        });
++    }
++
++    function collectActualWeightsFromCard(card) {
++        const result = { habitability: {}, phi: {} };
++        card.querySelectorAll('.planet-weight-input').forEach(inputElement => {
++            const category = inputElement.dataset.weightType;
++            const label = inputElement.dataset.displayLabel;
++            const slider = card.querySelector(`.planet-weight-slider[data-weight-type="${category}"][data-weight-key="${inputElement.dataset.weightKey}"]`);
++            const baseline = Number(inputElement.dataset.baseline) || 0;
++            const absMin = Number(inputElement.dataset.absMin);
++            const absMax = Number(inputElement.dataset.absMax);
++            const step = Number(inputElement.step || '0.01');
++            const deltaMin = Number(inputElement.min);
++            const deltaMax = Number(inputElement.max);
++            let deltaValue = Number(inputElement.value);
++            if (!Number.isFinite(deltaValue)) {
++                deltaValue = 0;
++            }
++            deltaValue = clampValue(roundToStep(deltaValue, step), deltaMin, deltaMax);
++            if (slider) {
++                slider.value = deltaValue.toFixed(2);
++            }
++            inputElement.value = deltaValue.toFixed(2);
++            const effective = clampValue(baseline + deltaValue, absMin, absMax);
++            updateEffectiveDisplay(slider, deltaValue);
++            if (category === 'hab') {
++                result.habitability[label] = Number(effective.toFixed(4));
++            } else {
++                result.phi[label] = Number(effective.toFixed(4));
++            }
++        });
++        return result;
++    }
++
++    function buildEffectivePayloadFromState() {
++        const payload = {};
++        Object.entries(CURRENT_PLANET_SPECIFIC_WEIGHTS || {}).forEach(([planetName, categories]) => {
++            const habitability = {};
++            const phi = {};
++            Object.entries(categories?.habitability || {}).forEach(([label, value]) => {
++                const numeric = Number(value);
++                if (Number.isFinite(numeric)) {
++                    habitability[label] = numeric;
++                }
++            });
++            Object.entries(categories?.phi || {}).forEach(([label, value]) => {
++                const numeric = Number(value);
++                if (Number.isFinite(numeric)) {
++                    phi[label] = numeric;
++                }
++            });
++            payload[planetName] = { habitability, phi };
++        });
++        return payload;
++    }
+ 
+     async function loadPlanetWeightsUI() {
+         try {
+@@ -216,42 +350,86 @@ document.addEventListener('DOMContentLoaded', function() {
+                                 <div class="tab-content pt-3">
+                                     <div class="tab-pane fade show active" id="hab-content-${index}" role="tabpanel">
+                                         <div class="row">`;
+-                    habFactorDefinitions.forEach(factor => {
+-                        const currentValue = getWeightValue(planetNormalizedName, 'hab', factor.key);
+-                        html += `
+-                            <div class="col-md-6 mb-3">
+-                                <label class="form-label">${factor.label}</label>
+-                                <div class="input-group">
+-                                    <input type="range" class="form-range planet-weight-slider"
+-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
+-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}">
+-                                    <input type="number" class="form-control planet-weight-input"
+-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
+-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}" style="width: 80px;">
+-                                </div>
+-                                <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
+-                            </div>`;
+-                    });
++                    habFactorDefinitions.forEach(factor => {
++                        const baselineValue = getBaselineWeight(planetNormalizedName, 'hab', factor.label);
++                        const effectiveValue = getEffectiveWeight(planetNormalizedName, 'hab', factor.label, baselineValue);
++                        const { deltaMin, deltaMax, zeroPercent } = computeDeltaRange(baselineValue, factor.absMin, factor.absMax, factor.step);
++                        let deltaValue = roundToStep(effectiveValue - baselineValue, factor.step);
++                        deltaValue = clampValue(deltaValue, deltaMin, deltaMax);
++                        const sliderMin = deltaMin.toFixed(2);
++                        const sliderMax = deltaMax.toFixed(2);
++                        const sliderValue = deltaValue.toFixed(2);
++                        const baselinePercent = zeroPercent.toFixed(2);
++                        html += `
++                            <div class="col-md-6 mb-3">
++                                <label class="form-label d-flex justify-content-between align-items-center">
++                                    <span>${factor.label}</span>
++                                    <span class="badge bg-light text-dark border reference-weight-badge">Ref: ${formatWeight(baselineValue)}</span>
++                                </label>
++                                <div class="weight-control">
++                                    <div class="relative-slider">
++                                        <div class="baseline-marker" style="left: ${baselinePercent}%"></div>
++                                        <input type="range" class="form-range planet-weight-slider"
++                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
++                                               data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
++                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}">
++                                    </div>
++                                    <div class="input-group align-items-center gap-2 mt-2">
++                                        <span class="input-group-text">Δ</span>
++                                        <input type="number" class="form-control planet-weight-input"
++                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="hab"
++                                               data-display-label="${factor.label}" data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
++                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}" style="width: 100px;">
++                                    </div>
++                                    <div class="effective-value text-muted small" data-effective-output>
++                                        Effective: ${formatWeight(effectiveValue)} (Δ ${formatSigned(deltaValue)})
++                                    </div>
++                                </div>
++                                <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
++                            </div>`;
++                    });
+                     html += `       </div>
+                                 </div>
+                                 <div class="tab-pane fade" id="phi-content-${index}" role="tabpanel">
+                                     <div class="row">`;
+-                    phiFactorDefinitions.forEach(factor => {
+-                        const currentValue = getWeightValue(planetNormalizedName, 'phi', factor.key);
+-                        html += `
+-                            <div class="col-md-6 mb-3">
+-                                <label class="form-label">${factor.label}</label>
+-                                <div class="input-group">
+-                                    <input type="range" class="form-range planet-weight-slider"
+-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
+-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}">
+-                                    <input type="number" class="form-control planet-weight-input"
+-                                           data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
+-                                           min="${factor.min}" max="${factor.max}" step="${factor.step}" value="${currentValue}" style="width: 80px;">
+-                                </div>
+-                                <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
+-                            </div>`;
+-                    });
++                    phiFactorDefinitions.forEach(factor => {
++                        const baselineValue = getBaselineWeight(planetNormalizedName, 'phi', factor.label);
++                        const effectiveValue = getEffectiveWeight(planetNormalizedName, 'phi', factor.label, baselineValue);
++                        const { deltaMin, deltaMax, zeroPercent } = computeDeltaRange(baselineValue, factor.absMin, factor.absMax, factor.step);
++                        let deltaValue = roundToStep(effectiveValue - baselineValue, factor.step);
++                        deltaValue = clampValue(deltaValue, deltaMin, deltaMax);
++                        const sliderMin = deltaMin.toFixed(2);
++                        const sliderMax = deltaMax.toFixed(2);
++                        const sliderValue = deltaValue.toFixed(2);
++                        const baselinePercent = zeroPercent.toFixed(2);
++                        html += `
++                            <div class="col-md-6 mb-3">
++                                <label class="form-label d-flex justify-content-between align-items-center">
++                                    <span>${factor.label}</span>
++                                    <span class="badge bg-light text-dark border reference-weight-badge">Ref: ${formatWeight(baselineValue)}</span>
++                                </label>
++                                <div class="weight-control">
++                                    <div class="relative-slider">
++                                        <div class="baseline-marker" style="left: ${baselinePercent}%"></div>
++                                        <input type="range" class="form-range planet-weight-slider"
++                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
++                                               data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
++                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}">
++                                    </div>
++                                    <div class="input-group align-items-center gap-2 mt-2">
++                                        <span class="input-group-text">Δ</span>
++                                        <input type="number" class="form-control planet-weight-input"
++                                               data-planet-normalized-name="${planetNormalizedName}" data-weight-key="${factor.key}" data-weight-type="phi"
++                                               data-display-label="${factor.label}" data-baseline="${baselineValue}" data-abs-min="${factor.absMin}" data-abs-max="${factor.absMax}"
++                                               min="${sliderMin}" max="${sliderMax}" step="${factor.step}" value="${sliderValue}" style="width: 100px;">
++                                    </div>
++                                    <div class="effective-value text-muted small" data-effective-output>
++                                        Effective: ${formatWeight(effectiveValue)} (Δ ${formatSigned(deltaValue)})
++                                    </div>
++                                </div>
++                                <small class="form-text text-muted weight-description" data-weight="${factor.key}">${weightDescriptions[factor.key] || ''}</small>
++                            </div>`;
++                    });
+                     html += `       </div>
+                                 </div>
+                             </div>
+@@ -281,73 +459,41 @@ document.addEventListener('DOMContentLoaded', function() {
+                 const planetNormalizedName = this.dataset.planetNormalizedName;
+                 const planetDisplayName = this.dataset.planetDisplayName;
+                 const useIndividual = useIndividualWeightsCheckbox.checked;
+-                let collectedWeights = {};
+-
+-                const card = document.querySelector(`.planet-weight-card[data-planet-normalized-name="${planetNormalizedName}"]`);
+-                if (!card) return;
+-
+-                let currentPlanetHabWeights = {};
+-                let currentPlanetPhiWeights = {};
+-                let hasChanges = false;
+-
+-                const initialHab = INITIAL_HAB_WEIGHTS[planetNormalizedName] || {};
+-                const initialPhi = INITIAL_PHI_WEIGHTS[planetNormalizedName] || {};
+-
+-                habFactorDefinitions.forEach(factorDef => {
+-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="hab"][data-weight-key="${factorDef.key}"]`);
+-                    if (inputElement) {
+-                        const val = parseFloat(inputElement.value);
+-                        currentPlanetHabWeights[factorDef.label] = val;
+-                        if (Math.abs(val - (initialHab[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+-                            hasChanges = true;
+-                        }
+-                    }
+-                });
+-
+-                phiFactorDefinitions.forEach(factorDef => {
+-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
+-                    if (inputElement) {
+-                        const val = parseFloat(inputElement.value);
+-                        currentPlanetPhiWeights[factorDef.label] = val;
+-                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+-                            hasChanges = true;
+-                        }
+-                    }
+-                });
+-
+-                if (hasChanges) {
+-                    collectedWeights[planetNormalizedName] = {
+-                        habitability: currentPlanetHabWeights,
+-                        phi: currentPlanetPhiWeights
+-                    };
+-                }
+-
+-                console.log(`Saving weights for ${planetDisplayName}:`, {
+-                    use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
+-                    planet_weights: collectedWeights
+-                });
+-
+-                try {
+-                    const response = await fetch('/api/save-planet-weights', {
+-                        method: 'POST',
+-                        headers: { 'Content-Type': 'application/json' },
+-                        body: JSON.stringify({
+-                            use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
+-                            planet_weights: collectedWeights
+-                        })
+-                    });
+-                    if (!response.ok) throw new Error(`Failed to save weights for ${planetDisplayName}: ${response.status}`);
+-                    const result = await response.json();
+-                    if (result.status === 'success') {
+-                        alert(`Weights for ${planetDisplayName} saved successfully!`);
+-                        if (result.saved_weights && result.saved_weights[planetNormalizedName]) {
+-                            CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName] = result.saved_weights[planetNormalizedName];
+-                        } else {
+-                            delete CURRENT_PLANET_SPECIFIC_WEIGHTS[planetNormalizedName];
+-                        }
+-                        await loadReferenceValues();
+-                    } else {
+-                        alert(`Error saving weights for ${planetDisplayName}.`);
++                const card = document.querySelector(`.planet-weight-card[data-planet-normalized-name="${planetNormalizedName}"]`);
++                if (!card) return;
++
++                const collected = collectActualWeightsFromCard(card);
++                const collectedWeights = { [planetNormalizedName]: collected };
++                const shouldUseIndividual = useIndividual && Object.keys(collectedWeights).length > 0;
++
++                console.log(`Saving weights for ${planetDisplayName}:`, {
++                    use_individual_weights: shouldUseIndividual,
++                    planet_weights: collectedWeights
++                });
++
++                try {
++                    const response = await fetch('/api/save-planet-weights', {
++                        method: 'POST',
++                        headers: { 'Content-Type': 'application/json' },
++                        body: JSON.stringify({
++                            use_individual_weights: shouldUseIndividual,
++                            weights_are_deltas: false,
++                            planet_weights: collectedWeights
++                        })
++                    });
++                    if (!response.ok) throw new Error(`Failed to save weights for ${planetDisplayName}: ${response.status}`);
++                    const result = await response.json();
++                    if (result.status === 'success') {
++                        alert(`Weights for ${planetDisplayName} saved successfully!`);
++                        if (!CURRENT_PLANET_SPECIFIC_WEIGHTS || typeof CURRENT_PLANET_SPECIFIC_WEIGHTS !== 'object') {
++                            CURRENT_PLANET_SPECIFIC_WEIGHTS = {};
++                        }
++                        Object.entries(result.saved_weights || {}).forEach(([normalizedName, categories]) => {
++                            CURRENT_PLANET_SPECIFIC_WEIGHTS[normalizedName] = categories;
++                        });
++                        await loadReferenceValues();
++                    } else {
++                        alert(`Error saving weights for ${planetDisplayName}.`);
+                     }
+                 } catch (error) {
+                     console.error(`Error saving weights for ${planetDisplayName}:`, error);
+@@ -357,55 +503,87 @@ document.addEventListener('DOMContentLoaded', function() {
+         });
+     }
+ 
+-    function setupPlanetWeightControls() {
+-        document.querySelectorAll('.planet-weight-slider').forEach(slider => {
+-            const planetName = slider.dataset.planetNormalizedName;
+-            const weightKey = slider.dataset.weightKey;
+-            const weightType = slider.dataset.weightType;
+-            const inputField = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
+-
+-            if (inputField) {
+-                slider.addEventListener('input', function() { inputField.value = this.value; });
+-            }
+-        });
+-
+-        document.querySelectorAll('.planet-weight-input').forEach(input => {
+-            const planetName = input.dataset.planetNormalizedName;
+-            const weightKey = input.dataset.weightKey;
+-            const weightType = input.dataset.weightType;
+-            const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
+-
+-            if (slider) {
+-                input.addEventListener('input', function() { slider.value = this.value; });
+-            }
+-        });
+-    }
+-
+-    function setupResetButtons() {
+-        document.querySelectorAll('.reset-planet-weights-btn').forEach(button => {
+-            button.addEventListener('click', function() {
+-                const planetNormalizedName = this.dataset.planetNormalizedName;
+-                
+-                habFactorDefinitions.forEach(factor => {
+-                    const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
+-                    const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
+-                    const initialValue = INITIAL_HAB_WEIGHTS[planetNormalizedName]?.[factor.label] ?? factor.defaultVal;
+-                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to ${initialValue}`);
+-                    if (slider) slider.value = initialValue;
+-                    if (input) input.value = initialValue;
+-                });
+-
+-                phiFactorDefinitions.forEach(factor => {
+-                    const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
+-                    const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
+-                    const initialValue = INITIAL_PHI_WEIGHTS[planetNormalizedName]?.[factor.label] ?? factor.defaultVal;
+-                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to ${initialValue}`);
+-                    if (slider) slider.value = initialValue;
+-                    if (input) input.value = initialValue;
+-                });
+-            });
+-        });
+-    }
++    function setupPlanetWeightControls() {
++        document.querySelectorAll('.planet-weight-slider').forEach(slider => {
++            const planetName = slider.dataset.planetNormalizedName;
++            const weightKey = slider.dataset.weightKey;
++            const weightType = slider.dataset.weightType;
++            const inputField = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
++
++            if (inputField) {
++                slider.addEventListener('input', function() {
++                    const step = Number(this.step || '0.01');
++                    let deltaValue = Number(this.value);
++                    if (!Number.isFinite(deltaValue)) {
++                        deltaValue = 0;
++                    }
++                    deltaValue = clampValue(roundToStep(deltaValue, step), Number(this.min), Number(this.max));
++                    const formatted = deltaValue.toFixed(2);
++                    this.value = formatted;
++                    inputField.value = formatted;
++                    updateEffectiveDisplay(this, deltaValue);
++                });
++            }
++        });
++
++        document.querySelectorAll('.planet-weight-input').forEach(input => {
++            const planetName = input.dataset.planetNormalizedName;
++            const weightKey = input.dataset.weightKey;
++            const weightType = input.dataset.weightType;
++            const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetName}"][data-weight-key="${weightKey}"][data-weight-type="${weightType}"]`);
++
++            if (slider) {
++                input.addEventListener('input', function() {
++                    const step = Number(this.step || '0.01');
++                    let deltaValue = Number(this.value);
++                    if (!Number.isFinite(deltaValue)) {
++                        deltaValue = 0;
++                    }
++                    deltaValue = clampValue(roundToStep(deltaValue, step), Number(this.min), Number(this.max));
++                    const formatted = deltaValue.toFixed(2);
++                    this.value = formatted;
++                    slider.value = formatted;
++                    updateEffectiveDisplay(slider, deltaValue);
++                });
++            }
++        });
++
++        initializeEffectiveDisplays();
++    }
++
++    function setupResetButtons() {
++        document.querySelectorAll('.reset-planet-weights-btn').forEach(button => {
++            button.addEventListener('click', function() {
++                const planetNormalizedName = this.dataset.planetNormalizedName;
++
++                habFactorDefinitions.forEach(factor => {
++                    const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
++                    const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="hab"]`);
++                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to baseline delta 0`);
++                    if (slider) {
++                        slider.value = '0.00';
++                        updateEffectiveDisplay(slider, 0);
++                    }
++                    if (input) {
++                        input.value = '0.00';
++                    }
++                });
++
++                phiFactorDefinitions.forEach(factor => {
++                    const slider = document.querySelector(`.planet-weight-slider[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
++                    const input = document.querySelector(`.planet-weight-input[data-planet-normalized-name="${planetNormalizedName}"][data-weight-key="${factor.key}"][data-weight-type="phi"]`);
++                    console.log(`Resetting ${planetNormalizedName}, ${factor.label} to baseline delta 0`);
++                    if (slider) {
++                        slider.value = '0.00';
++                        updateEffectiveDisplay(slider, 0);
++                    }
++                    if (input) {
++                        input.value = '0.00';
++                    }
++                });
++            });
++        });
++    }
+ 
+     const saveAllButton = document.getElementById('save-all-individual-weights-btn');
+     if (saveAllButton) {
+@@ -413,70 +591,44 @@ document.addEventListener('DOMContentLoaded', function() {
+             const useIndividual = useIndividualWeightsCheckbox.checked;
+             const collectedWeights = {};
+ 
+-            document.querySelectorAll('.planet-weight-card').forEach(card => {
+-                const planetDisplayName = card.dataset.planetDisplayName;
+-                const planetNormalizedName = normalizePlanetName(planetDisplayName);
+-
+-                let currentPlanetHabWeights = {};
+-                let currentPlanetPhiWeights = {};
+-                let hasChanges = false;
+-
+-                const initialHab = INITIAL_HAB_WEIGHTS[planetNormalizedName] || {};
+-                const initialPhi = INITIAL_PHI_WEIGHTS[planetNormalizedName] || {};
+-
+-                habFactorDefinitions.forEach(factorDef => {
+-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="hab"][data-weight-key="${factorDef.key}"]`);
+-                    if (inputElement) {
+-                        const val = parseFloat(inputElement.value);
+-                        currentPlanetHabWeights[factorDef.label] = val;
+-                        if (Math.abs(val - (initialHab[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+-                            hasChanges = true;
+-                        }
+-                    }
+-                });
+-
+-                phiFactorDefinitions.forEach(factorDef => {
+-                    const inputElement = card.querySelector(`.planet-weight-input[data-weight-type="phi"][data-weight-key="${factorDef.key}"]`);
+-                    if (inputElement) {
+-                        const val = parseFloat(inputElement.value);
+-                        currentPlanetPhiWeights[factorDef.label] = val;
+-                        if (Math.abs(val - (initialPhi[factorDef.label] ?? factorDef.defaultVal)) > 1e-9) {
+-                            hasChanges = true;
+-                        }
+-                    }
+-                });
+-
+-                if (hasChanges) {
+-                    collectedWeights[planetNormalizedName] = {
+-                        habitability: currentPlanetHabWeights,
+-                        phi: currentPlanetPhiWeights
+-                    };
+-                }
+-            });
+-
+-            console.log('Sending weights to API:', {
+-                use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
+-                planet_weights: collectedWeights
+-            });
+-
+-            try {
+-                const response = await fetch('/api/save-planet-weights', {
+-                    method: 'POST',
+-                    headers: { 'Content-Type': 'application/json' },
+-                    body: JSON.stringify({
+-                        use_individual_weights: useIndividual && Object.keys(collectedWeights).length > 0,
+-                        planet_weights: collectedWeights
+-                    })
+-                });
+-                if (!response.ok) throw new Error(`Failed to save weights: ${response.status}`);
+-                const result = await response.json();
+-                if (result.status === 'success') {
+-                    alert('Individual planet weights saved successfully!');
+-                    CURRENT_PLANET_SPECIFIC_WEIGHTS = result.saved_weights || {};
+-                    await loadReferenceValues();
+-                } else {
+-                    alert('Error saving weights.');
+-                }
++            document.querySelectorAll('.planet-weight-card').forEach(card => {
++                const planetDisplayName = card.dataset.planetDisplayName;
++                const planetNormalizedName = normalizePlanetName(planetDisplayName);
++                const collected = collectActualWeightsFromCard(card);
++                collectedWeights[planetNormalizedName] = collected;
++        });
++
++        const shouldUseIndividual = useIndividual && Object.keys(collectedWeights).length > 0;
++
++        console.log('Sending weights to API:', {
++            use_individual_weights: shouldUseIndividual,
++            planet_weights: collectedWeights
++        });
++
++        try {
++            const response = await fetch('/api/save-planet-weights', {
++                method: 'POST',
++                headers: { 'Content-Type': 'application/json' },
++                body: JSON.stringify({
++                    use_individual_weights: shouldUseIndividual,
++                    weights_are_deltas: false,
++                    planet_weights: collectedWeights
++                })
++            });
++            if (!response.ok) throw new Error(`Failed to save weights: ${response.status}`);
++            const result = await response.json();
++            if (result.status === 'success') {
++                alert('Individual planet weights saved successfully!');
++                if (!CURRENT_PLANET_SPECIFIC_WEIGHTS || typeof CURRENT_PLANET_SPECIFIC_WEIGHTS !== 'object') {
++                    CURRENT_PLANET_SPECIFIC_WEIGHTS = {};
++                }
++                Object.entries(result.saved_weights || {}).forEach(([normalizedName, categories]) => {
++                    CURRENT_PLANET_SPECIFIC_WEIGHTS[normalizedName] = categories;
++                });
++                await loadReferenceValues();
++            } else {
++                alert('Error saving weights.');
++            }
+             } catch (error) {
+                 console.error('Error saving planet weights:', error);
+                 alert('Error saving weights: ' + error.message);
+@@ -485,13 +637,14 @@ document.addEventListener('DOMContentLoaded', function() {
+     }
+ 
+     async function loadReferenceValues() {
+-        try {
+-            const useIndividual = useIndividualWeightsCheckbox.checked;
+-            const payload = {
+-                use_individual_weights: useIndividual && Object.keys(CURRENT_PLANET_SPECIFIC_WEIGHTS).length > 0,
+-                planet_weights: useIndividual ? CURRENT_PLANET_SPECIFIC_WEIGHTS : {}
+-            };
+-            console.log('Sending reference values request:', payload);
++        try {
++            const useIndividual = useIndividualWeightsCheckbox.checked;
++            const payload = {
++                use_individual_weights: useIndividual,
++                weights_are_deltas: false,
++                planet_weights: useIndividual ? buildEffectivePayloadFromState() : {}
++            };
++            console.log('Sending reference values request:', payload);
+ 
+             const response = await fetch('/api/planets/reference_values', {
+                 method: 'POST',
+@@ -543,14 +696,39 @@ document.addEventListener('DOMContentLoaded', function() {
+     text-align: center;
+ }
+ 
+-.form-range {
+-    flex-grow: 1;
+-    margin-right: 10px;
+-}
+-
+-.input-group {
+-    display: flex;
+-    align-items: center;
+-}
++.form-range {
++    flex-grow: 1;
++}
++
++.input-group {
++    display: flex;
++    align-items: center;
++}
++
++.reference-weight-badge {
++    font-size: 0.75rem;
++    font-weight: 500;
++}
++
++.weight-control {
++    display: flex;
++    flex-direction: column;
++    gap: 0.5rem;
++}
++
++.relative-slider {
++    position: relative;
++    width: 100%;
++}
++
++.relative-slider .baseline-marker {
++    position: absolute;
++    top: 0;
++    bottom: 0;
++    width: 2px;
++    background-color: #0d6efd;
++    opacity: 0.6;
++    pointer-events: none;
++}
+ </style>
+ {% endblock %}
+\ No newline at end of file
+diff --git a/lifesearch/lifesearch_main.py b/lifesearch/lifesearch_main.py
+index 54b5852..2e9285c 100644
+--- a/lifesearch/lifesearch_main.py
++++ b/lifesearch/lifesearch_main.py
+@@ -261,7 +261,7 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
+     return sephi_val * 100, L1 * 100, L2 * 100, L3 * 100, L4 * 100
+ 
+ # --- Core Calculation Functions ---
+-def calculate_esi_score(planet_data, weights):
++def calculate_esi_score(planet_data, weights, component_overrides=None):
+     """Calculates the Earth Similarity Index (ESI) for a planet.
+     
+     The ESI measures similarity to Earth based on radius, density, and
+@@ -277,50 +277,101 @@ def calculate_esi_score(planet_data, weights):
+         tuple: (float ESI_score (0-100), str color_code_for_ESI).
+                Returns 0.0 if no valid components are found.
+     """
+-    logger.debug(f"Calculating ESI for planet: {planet_data.get('pl_name', 'Unknown')}")
+-    earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
+-    esi_factors_map = {
+-        "pl_rade": weights.get("Size", 1.0),
+-        "pl_dens": weights.get("Density", 1.0),
+-        "pl_eqt": weights.get("Habitable Zone", 1.0)
+-    }
+-    esi_components = []
+-    num_params = 0
+-    max_weight = 1.0
+-
+-    for param_key, weight_val in esi_factors_map.items():
+-        planet_val = planet_data.get(param_key)
+-        earth_val = earth_params.get(param_key)
+-        logger.debug(f"ESI param: {param_key}, Planet val: {planet_val}, Earth val: {earth_val}, Weight: {weight_val}")
+-        if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
+-            try:
+-                planet_val_fl = float(planet_val)
+-                earth_val_fl = float(earth_val)
+-                if (planet_val_fl + earth_val_fl) == 0:
+-                    similarity_component = 0.0 # pragma: no cover
+-                else:
+-                    similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
+-                if similarity_component < 0:
+-                    similarity_component = 0.0 # pragma: no cover
+-                # Quando weight_val = 0.0, usar a similaridade real
+-                scaled_component = similarity_component if weight_val == 0.0 else (
+-                    similarity_component + (1.0 - similarity_component) * (weight_val / max_weight)
+-                )
+-                esi_components.append(scaled_component)
+-                num_params += 1
+-                logger.debug(f"ESI scaled component for {param_key}: {scaled_component}, Similarity: {similarity_component}")
+-            except (ValueError, TypeError) as e: # pragma: no cover
+-                logger.warning(f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}") # pragma: no cover
+-        else:
+-            logger.debug(f"Skipping ESI param {param_key} due to missing or invalid data: planet_val={planet_val}, earth_val={earth_val}")
+-
+-    if not esi_components or num_params == 0:
+-        logger.warning("No valid ESI components found.")
+-        return 0.0, get_color_for_percentage(0.0)
+-
+-    final_esi = (sum(esi_components) / num_params) * 100 if num_params > 0 else 0.0
+-    logger.info(f"Final ESI for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
+-    return round(final_esi, 2), get_color_for_percentage(final_esi)
++    logger.debug(f"Calculating ESI for planet: {planet_data.get('pl_name', 'Unknown')}")
++    earth_params = {"pl_rade": 1.0, "pl_dens": 5.51, "pl_eqt": 255.0}
++    component_overrides = component_overrides or {}
++
++    if component_overrides:
++        logger.debug(f"ESI component overrides provided: {component_overrides}")
++        components = []
++        factor_map = [
++            ("Habitable Zone", "pl_eqt"),
++            ("Size", "pl_rade"),
++            ("Density", "pl_dens"),
++        ]
++        for label, param_key in factor_map:
++            override_val = component_overrides.get(label)
++            if override_val is not None:
++                try:
++                    numeric = float(override_val)
++                    if math.isnan(numeric):
++                        raise ValueError("NaN override")
++                except (TypeError, ValueError):
++                    logger.debug(f"Invalid override for {label}: {override_val}")
++                else:
++                    clamped = max(0.0, min(1.0, numeric))
++                    components.append(clamped)
++                    logger.debug(f"Using override component for {label}: {clamped}")
++                    continue
++
++            planet_val = planet_data.get(param_key)
++            earth_val = earth_params.get(param_key)
++            if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
++                try:
++                    planet_val_fl = float(planet_val)
++                    earth_val_fl = float(earth_val)
++                    if (planet_val_fl + earth_val_fl) == 0:
++                        similarity_component = 0.0
++                    else:
++                        similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
++                    similarity_component = max(0.0, min(1.0, similarity_component))
++                    components.append(similarity_component)
++                    logger.debug(f"Fallback similarity component for {label}: {similarity_component}")
++                except (ValueError, TypeError):
++                    logger.debug(f"Could not compute similarity component for {label} with values {planet_val} and {earth_val}")
++            else:
++                logger.debug(f"Missing data for {label}: planet_val={planet_val}, earth_val={earth_val}")
++
++        if not components:
++            logger.warning("No valid ESI components found after applying overrides.")
++            return 0.0, get_color_for_percentage(0.0)
++
++        final_esi = (sum(components) / len(components)) * 100
++        logger.info(f"Final ESI (override path) for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
++        return round(final_esi, 2), get_color_for_percentage(final_esi)
++
++    esi_factors_map = {
++        "pl_rade": weights.get("Size", 0.0),
++        "pl_dens": weights.get("Density", 0.0),
++        "pl_eqt": weights.get("Habitable Zone", 0.0)
++    }
++    esi_components = []
++    num_params = 0
++    max_weight = 1.0
++
++    for param_key, weight_val in esi_factors_map.items():
++        planet_val = planet_data.get(param_key)
++        earth_val = earth_params.get(param_key)
++        logger.debug(f"ESI param: {param_key}, Planet val: {planet_val}, Earth val: {earth_val}, Weight: {weight_val}")
++        if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
++            try:
++                planet_val_fl = float(planet_val)
++                earth_val_fl = float(earth_val)
++                if (planet_val_fl + earth_val_fl) == 0:
++                    similarity_component = 0.0 # pragma: no cover
++                else:
++                    similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
++                if similarity_component < 0:
++                    similarity_component = 0.0 # pragma: no cover
++                # Quando weight_val = 0.0, usar a similaridade real
++                scaled_component = similarity_component if weight_val == 0.0 else (
++                    similarity_component + (1.0 - similarity_component) * (weight_val / max_weight)
++                )
++                esi_components.append(scaled_component)
++                num_params += 1
++                logger.debug(f"ESI scaled component for {param_key}: {scaled_component}, Similarity: {similarity_component}")
++            except (ValueError, TypeError) as e: # pragma: no cover
++                logger.warning(f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}") # pragma: no cover
++        else:
++            logger.debug(f"Skipping ESI param {param_key} due to missing or invalid data: planet_val={planet_val}, earth_val={earth_val}")
++
++    if not esi_components or num_params == 0:
++        logger.warning("No valid ESI components found.")
++        return 0.0, get_color_for_percentage(0.0)
++
++    final_esi = (sum(esi_components) / num_params) * 100 if num_params > 0 else 0.0
++    logger.info(f"Final ESI for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
++    return round(final_esi, 2), get_color_for_percentage(final_esi)
+ 
+ def calculate_sph_score(planet_data, weights):
+     """Calculates the Standard Primary Habitability (SPH) score for a planet.
+@@ -362,7 +413,7 @@ def calculate_sph_score(planet_data, weights):
+     logger.info(f"Final SPH for {planet_data.get('pl_name', 'Unknown')}: {final_sph}")
+     return round(final_sph, 2), get_color_for_percentage(final_sph)
+ 
+-def calculate_phi_score(planet_data, phi_weights):
++def calculate_phi_score(planet_data, phi_weights, component_overrides=None):
+     """Calculates a Planetary Habitability Index (PHI) score.
+     
+     PHI is based on factors like "Solid Surface", "Stable Energy",
+@@ -415,33 +466,65 @@ def calculate_phi_score(planet_data, phi_weights):
+         except (ValueError, TypeError, AttributeError) as e: # pragma: no cover
+             logger.warning(f"pl_orbeccen could not be converted to float for Stable Orbit: {pl_orbeccen}. Error: {e}") # pragma: no cover
+ 
+-    logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
+-
+-    phi_components = []
+-    num_params = 0
+-    max_weight = 0.25
+-
+-    for factor_name, weight_val in phi_weights.items():
+-        factor_score = factors_present_scores.get(factor_name, 0.0)
+-        logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
+-        # Quando weight_val = 0.0, usar o score real; quando weight_val = 0.25, interpolar para 1.0
+-        scaled_component = factor_score if weight_val == 0.0 else (
+-            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
+-        )
+-        phi_components.append(scaled_component)
+-        num_params += 1
+-        logger.debug(f"PHI scaled component for {factor_name}: {scaled_component}, Original score: {factor_score}")
+-
+-    if not phi_components or num_params == 0:
+-        logger.warning("No valid PHI components found.")
+-        return 0.0, get_color_for_percentage(0.0)
+-
+-    final_phi = (sum(phi_components) / num_params) * 100 if num_params > 0 else 0.0
+-    final_phi = max(0.0, min(final_phi, 100.0))
+-
+-    logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
+-
+-    return round(final_phi, 2), get_color_for_percentage(final_phi)
++    logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
++
++    component_overrides = component_overrides or {}
++    max_weight = 0.25
++
++    if component_overrides:
++        logger.debug(f"PHI component overrides provided: {component_overrides}")
++        phi_components = []
++        for factor_name, default_score in factors_present_scores.items():
++            override_val = component_overrides.get(factor_name)
++            if override_val is not None:
++                try:
++                    numeric = float(override_val)
++                    if math.isnan(numeric):
++                        raise ValueError("NaN override")
++                except (TypeError, ValueError):
++                    logger.debug(f"Invalid PHI override for {factor_name}: {override_val}")
++                else:
++                    clamped = max(0.0, min(max_weight, numeric))
++                    normalized = clamped / max_weight if max_weight > 0 else clamped
++                    phi_components.append(normalized)
++                    logger.debug(f"Using override component for {factor_name}: {normalized}")
++                    continue
++
++            phi_components.append(default_score)
++            logger.debug(f"Fallback component for {factor_name}: {default_score}")
++
++        if not phi_components:
++            logger.warning("No valid PHI components found after applying overrides.")
++            return 0.0, get_color_for_percentage(0.0)
++
++        final_phi = (sum(phi_components) / len(phi_components)) * 100
++        final_phi = max(0.0, min(final_phi, 100.0))
++        logger.info(f"Final PHI (override path) for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
++        return round(final_phi, 2), get_color_for_percentage(final_phi)
++
++    phi_components = []
++    num_params = 0
++
++    for factor_name, factor_score in factors_present_scores.items():
++        weight_val = phi_weights.get(factor_name, 0.0)
++        logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
++        scaled_component = factor_score if weight_val == 0.0 else (
++            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
++        )
++        phi_components.append(scaled_component)
++        num_params += 1
++        logger.debug(f"PHI scaled component for {factor_name}: {scaled_component}, Original score: {factor_score}")
++
++    if not phi_components or num_params == 0:
++        logger.warning("No valid PHI components found.")
++        return 0.0, get_color_for_percentage(0.0)
++
++    final_phi = (sum(phi_components) / num_params) * 100 if num_params > 0 else 0.0
++    final_phi = max(0.0, min(final_phi, 100.0))
++
++    logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
++
++    return round(final_phi, 2), get_color_for_percentage(final_phi)
+ 
+ # --- Habiitability Score Calculation Function - Lifersearch Project ---
+ def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weights_config):
+@@ -686,9 +769,14 @@ def process_planet_data(planet_name, combined_data, weights_config):
+ 
+     star_data_for_plot = {"st_lum": planet_data_dict.get("st_lum")}
+     logger.debug(f"Star data for plot for {planet_name}: {star_data_for_plot}")
+-    esi_val, esi_color = calculate_esi_score(planet_data_dict, weights_config.get("habitability", {}))
+-    sph_val, sph_color = calculate_sph_score(planet_data_dict, weights_config.get("habitability", {}))
+-    phi_val, phi_color = calculate_phi_score(planet_data_dict, weights_config.get("phi", {}))
++    habitability_weights = weights_config.get("habitability", {})
++    habitability_components = weights_config.get("habitability_components") or habitability_weights
++    phi_weights = weights_config.get("phi", {})
++    phi_components = weights_config.get("phi_components") or phi_weights
++
++    esi_val, esi_color = calculate_esi_score(planet_data_dict, habitability_weights, habitability_components)
++    sph_val, sph_color = calculate_sph_score(planet_data_dict, habitability_weights)
++    phi_val, phi_color = calculate_phi_score(planet_data_dict, phi_weights, phi_components)
+     scores_for_report = {"ESI": (esi_val, esi_color), "SPH": (sph_val, sph_color), "PHI": (phi_val, phi_color)}
+     logger.debug(f"Basic scores for {planet_name}: {scores_for_report}")
+ 
+diff --git a/tests/test_weight_recalculation.py b/tests/test_weight_recalculation.py
+new file mode 100644
+index 0000000..af85c19
+--- /dev/null
++++ b/tests/test_weight_recalculation.py
+@@ -0,0 +1,185 @@
++import pandas as pd
++import pytest
++
++from app import create_app
++from lifesearch.data import normalize_name
++from lifesearch.lifesearch_main import calculate_esi_score, calculate_phi_score
++
++
++planet_data = {
++    'pl_name': 'Kepler-276 c',
++    'pl_rade': 2.9,
++    'pl_dens': 0.889,
++    'pl_eqt': 562.0,
++    'classification': 'Neptunian',
++    'st_spectype': 'G',
++    'st_age': 5.0,
++    'pl_orbeccen': 0.1,
++}
++
++initial_hab_weights = {
++    'Habitable Zone': 0.6234718826405867,
++    'Size': 0.5128205128205128,
++    'Density': 0.27812499999999996,
++}
++
++initial_phi_weights = {
++    'Solid Surface': 0.0,
++    'Stable Energy': 0.0,
++    'Life Compounds': 0.0,
++    'Stable Orbit': 0.050625,
++}
++
++
++@pytest.fixture
++def client():
++    app = create_app()
++    app.config.update({"TESTING": True, "SECRET_KEY": "test", "WTF_CSRF_ENABLED": False})
++    with app.test_client() as client:
++        yield client
++
++
++def _setup_session(client):
++    norm = normalize_name('Kepler-276 c')
++    with client.session_transaction() as sess:
++        sess['planet_names_list'] = ['Kepler-276 c']
++        sess['initial_hab_weights'] = {norm: initial_hab_weights}
++        sess['initial_phi_weights'] = {norm: initial_phi_weights}
++
++
++def _patch_processing(monkeypatch):
++    captured = {}
++
++    def mock_process(name, data, weights):
++        hab_weights = weights.get('habitability', {})
++        hab_components = weights.get('habitability_components') or hab_weights
++        phi_weights = weights.get('phi', {})
++        phi_components = weights.get('phi_components') or phi_weights
++
++        captured['habitability'] = hab_components.copy()
++        captured['phi'] = phi_components.copy()
++
++        esi, _ = calculate_esi_score(planet_data, hab_weights, hab_components)
++        phi, _ = calculate_phi_score(planet_data, phi_weights, phi_components)
++        return {
++            'planet_data_dict': {'pl_name': name, 'classification': planet_data['classification']},
++            'scores_for_report': {'ESI': (esi, ''), 'PHI': (phi, '')},
++        }
++
++    monkeypatch.setattr('app.routes.process_planet_data', mock_process)
++    monkeypatch.setattr('app.routes.fetch_exoplanet_data_api', lambda name: {'pl_name': name})
++    monkeypatch.setattr('app.routes.merge_data_sources', lambda api, hwc, hz, norm: api)
++    monkeypatch.setattr('app.routes.load_hwc_catalog', lambda path: pd.DataFrame())
++    monkeypatch.setattr('app.routes.load_hzgallery_catalog', lambda path: pd.DataFrame())
++    return captured
++
++
++def test_reference_endpoint_returns_baseline_scores(client, monkeypatch):
++    _setup_session(client)
++    captured = _patch_processing(monkeypatch)
++
++    response = client.post('/api/planets/reference_values', json={
++        'use_individual_weights': True,
++        'weights_are_deltas': False,
++        'planet_weights': {}
++    }).get_json()
++
++    planet = response['planets'][0]
++    expected_esi, _ = calculate_esi_score(planet_data, captured['habitability'], captured['habitability'])
++    expected_phi, _ = calculate_phi_score(planet_data, captured['phi'], captured['phi'])
++    assert pytest.approx(expected_esi, rel=1e-6) == planet['esi']
++    assert pytest.approx(expected_phi, rel=1e-6) == planet['phi']
++
++
++def test_reference_endpoint_lower_weight_decreases_score(client, monkeypatch):
++    _setup_session(client)
++    captured = _patch_processing(monkeypatch)
++    norm = normalize_name('Kepler-276 c')
++
++    baseline_response = client.post('/api/planets/reference_values', json={
++        'use_individual_weights': True,
++        'weights_are_deltas': False,
++        'planet_weights': {}
++    }).get_json()
++    baseline_esi = baseline_response['planets'][0]['esi']
++
++    lowered_value = initial_hab_weights['Habitable Zone'] - 0.2
++    response = client.post('/api/planets/reference_values', json={
++        'use_individual_weights': True,
++        'weights_are_deltas': False,
++        'planet_weights': {
++            norm: {'habitability': {'Habitable Zone': lowered_value}}
++        }
++    }).get_json()
++
++    planet = response['planets'][0]
++    expected_esi, _ = calculate_esi_score(planet_data, captured['habitability'], captured['habitability'])
++    assert pytest.approx(lowered_value, rel=1e-9) == captured['habitability']['Habitable Zone']
++    assert pytest.approx(expected_esi, rel=1e-6) == planet['esi']
++    assert planet['esi'] < baseline_esi
++
++
++def test_save_planet_weights_stores_actual_and_clears_baseline(client):
++    _setup_session(client)
++    norm = normalize_name('Kepler-276 c')
++    lowered_value = initial_hab_weights['Habitable Zone'] - 0.15
++
++    save_payload = {
++        'use_individual_weights': True,
++        'weights_are_deltas': False,
++        'planet_weights': {
++            norm: {'habitability': {'Habitable Zone': lowered_value}}
++        }
++    }
++    response = client.post('/api/save-planet-weights', json=save_payload).get_json()
++
++    with client.session_transaction() as sess:
++        stored = sess['planet_weights'][norm]['habitability']['Habitable Zone']
++        assert pytest.approx(lowered_value, rel=1e-9) == stored
++
++    saved_actual = response['saved_weights'][norm]['habitability']['Habitable Zone']
++    assert pytest.approx(lowered_value, rel=1e-9) == saved_actual
++
++    reset_payload = {
++        'use_individual_weights': True,
++        'weights_are_deltas': False,
++        'planet_weights': {
++            norm: {'habitability': {'Habitable Zone': initial_hab_weights['Habitable Zone']}}
++        }
++    }
++    client.post('/api/save-planet-weights', json=reset_payload)
++
++    with client.session_transaction() as sess:
++        assert norm not in sess.get('planet_weights', {})
++
++
++def test_reference_endpoint_flushes_previous_values(client, monkeypatch):
++    _setup_session(client)
++    captured = _patch_processing(monkeypatch)
++    norm = normalize_name('Kepler-276 c')
++
++    higher_value = 0.97
++    first_response = client.post('/api/planets/reference_values', json={
++        'use_individual_weights': True,
++        'weights_are_deltas': False,
++        'planet_weights': {
++            norm: {'habitability': {'Habitable Zone': higher_value}}
++        }
++    }).get_json()
++    first_weights = captured['habitability'].copy()
++    first_esi = first_response['planets'][0]['esi']
++
++    lower_value = 0.5
++    second_response = client.post('/api/planets/reference_values', json={
++        'use_individual_weights': True,
++        'weights_are_deltas': False,
++        'planet_weights': {
++            norm: {'habitability': {'Habitable Zone': lower_value}}
++        }
++    }).get_json()
++    second_weights = captured['habitability'].copy()
++    second_esi = second_response['planets'][0]['esi']
++
++    assert pytest.approx(higher_value, rel=1e-9) == first_weights['Habitable Zone']
++    assert pytest.approx(lower_value, rel=1e-9) == second_weights['Habitable Zone']
++    assert second_esi < first_esi
+-- 
+2.43.0
+

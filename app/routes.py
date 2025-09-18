@@ -88,6 +88,141 @@ DEFAULT_PHI_WEIGHTS = {
 ZERO_HABITABILITY_WEIGHTS = {k: 0.0 for k in DEFAULT_HABITABILITY_WEIGHTS}
 ZERO_PHI_WEIGHTS = {k: 0.0 for k in DEFAULT_PHI_WEIGHTS}
 
+# Mapping of possible incoming weight keys to their canonical names
+WEIGHT_KEY_MAP = {
+    "habitable_zone": "Habitable Zone",
+    "size": "Size",
+    "density": "Density",
+    "atmosphere": "Atmosphere",
+    "water": "Water",
+    "presence_of_moons": "Presence of Moons",
+    "magnetic_activity": "Magnetic Activity",
+    "system_age": "System Age",
+    "solid_surface": "Solid Surface",
+    "stable_energy": "Stable Energy",
+    "life_compounds": "Life Compounds",
+    "stable_orbit": "Stable Orbit",
+}
+
+HAB_WEIGHT_MIN, HAB_WEIGHT_MAX = 0.0, 1.0
+PHI_WEIGHT_MIN, PHI_WEIGHT_MAX = 0.0, 0.25
+
+
+def canonicalize_weight_keys(weight_dict):
+    """Normalize incoming weight keys to canonical form."""
+
+    canonical = {}
+    for key, value in (weight_dict or {}).items():
+        lookup = key.lower().replace(" ", "_")
+        canonical_key = WEIGHT_KEY_MAP.get(lookup, key)
+        canonical[canonical_key] = value
+    return canonical
+
+
+def build_weight_baseline(initial_weights, defaults):
+    """Seed a weight dictionary with defaults and per-planet baseline values."""
+
+    baseline = {k: 0.0 for k in defaults}
+    if initial_weights:
+        baseline.update(initial_weights)
+    return baseline
+
+
+def _normalize_weight_value(value, clamp_min, clamp_max):
+    """Coerce a weight to float within the provided bounds."""
+
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(numeric):
+        return None
+    if clamp_min is not None:
+        numeric = max(clamp_min, numeric)
+    if clamp_max is not None:
+        numeric = min(clamp_max, numeric)
+    return numeric
+
+
+def merge_baseline_with_overrides(baseline, overrides, clamp_min, clamp_max):
+    """Return a weight map seeded from the baseline and replaced by overrides."""
+
+    weights = {}
+    for key, value in (baseline or {}).items():
+        numeric = _normalize_weight_value(value, clamp_min, clamp_max)
+        if numeric is not None:
+            weights[key] = numeric
+    for key, value in (overrides or {}).items():
+        numeric = _normalize_weight_value(value, clamp_min, clamp_max)
+        if numeric is not None:
+            weights[key] = numeric
+    return weights
+
+
+def sanitize_weight_payload(values, baseline, clamp_min, clamp_max):
+    """Sanitize incoming absolute weights before persisting them."""
+
+    if not values:
+        return {}
+    sanitized = {}
+    canonical_values = canonicalize_weight_keys(values)
+    for key, raw_value in canonical_values.items():
+        numeric = _normalize_weight_value(raw_value, clamp_min, clamp_max)
+        if numeric is None:
+            continue
+        sanitized[key] = numeric
+    return sanitized
+
+
+def convert_deltas_to_actuals(deltas, baseline, clamp_min, clamp_max):
+    """Convert delta payloads into absolute weights anchored at the baseline."""
+
+    if not deltas:
+        return {}
+    actuals = {}
+    canonical_deltas = canonicalize_weight_keys(deltas)
+    for key, raw_delta in canonical_deltas.items():
+        delta_value = _normalize_weight_value(raw_delta, None, None)
+        if delta_value is None:
+            continue
+        base_val = _normalize_weight_value(baseline.get(key, 0.0), clamp_min, clamp_max) or 0.0
+        actual_value = _normalize_weight_value(base_val + delta_value, clamp_min, clamp_max)
+        if actual_value is not None:
+            actuals[key] = actual_value
+    return actuals
+
+
+def strip_baseline_matches(actuals, baseline, clamp_min, clamp_max):
+    """Remove entries whose value matches the baseline within tolerance."""
+
+    trimmed = {}
+    for key, value in (actuals or {}).items():
+        numeric = _normalize_weight_value(value, clamp_min, clamp_max)
+        if numeric is None:
+            continue
+        base_val = _normalize_weight_value(baseline.get(key, 0.0), clamp_min, clamp_max) or 0.0
+        if not math.isclose(numeric, base_val, rel_tol=1e-9, abs_tol=1e-9):
+            trimmed[key] = numeric
+    return trimmed
+
+
+def combine_weight_sources(baseline, *overrides, clamp_min=None, clamp_max=None):
+    """Compose weight contributions from baseline and override mappings."""
+
+    combined = {}
+    sources = (baseline,) + overrides
+    for source in sources:
+        for key, value in (source or {}).items():
+            numeric = _normalize_weight_value(value, clamp_min, clamp_max)
+            if numeric is None:
+                continue
+            combined[key] = numeric
+    return combined
+
 from flask import current_app as app
 
 @routes_bp.app_context_processor
@@ -178,7 +313,7 @@ def configure():
     default_phi_weights = DEFAULT_PHI_WEIGHTS
     current_global_hab_weights = session.get("habitability_weights", ZERO_HABITABILITY_WEIGHTS)
     current_global_phi_weights = session.get("phi_weights", ZERO_PHI_WEIGHTS)
-    current_planet_specific_weights = session.get("planet_weights", {})
+    stored_planet_specific_weights = session.get("planet_weights", {})
     use_individual = session.get("use_individual_weights", False)
 
     reference_values = []
@@ -339,6 +474,34 @@ def configure():
                     for factor_name in phi_factors:
                         initial_phi_weights[normalized_planet_name][factor_name] = phi_target / len(phi_factors) if phi_val > 0 else 0.0
 
+    planets_for_display = {normalize_name(name) for name in planet_names_list}
+    planets_for_display.update(stored_planet_specific_weights.keys())
+    current_planet_specific_weights = {}
+    for normalized_planet_name in planets_for_display:
+        baseline_hab = build_weight_baseline(
+            initial_hab_weights.get(normalized_planet_name, {}),
+            DEFAULT_HABITABILITY_WEIGHTS,
+        )
+        baseline_phi = build_weight_baseline(
+            initial_phi_weights.get(normalized_planet_name, {}),
+            DEFAULT_PHI_WEIGHTS,
+        )
+        stored_actual = stored_planet_specific_weights.get(normalized_planet_name, {})
+        current_planet_specific_weights[normalized_planet_name] = {
+            "habitability": combine_weight_sources(
+                baseline_hab,
+                stored_actual.get("habitability", {}),
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            ),
+            "phi": combine_weight_sources(
+                baseline_phi,
+                stored_actual.get("phi", {}),
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            ),
+        }
+
     session['initial_hab_weights'] = initial_hab_weights
     session['initial_phi_weights'] = initial_phi_weights
     session.modified = True
@@ -403,14 +566,22 @@ def get_planet_reference_values():
         return jsonify({"planets": []})
     
     use_individual_weights = False
+    weights_are_deltas = False
     planet_weights = {}
     if request.method == "POST":
         data = request.json or {}
         use_individual_weights = data.get("use_individual_weights", False)
-        planet_weights = data.get("planet_weights", {})
-        logger.info(f"API reference_values - POST data: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
-        if use_individual_weights and not planet_weights:
-            use_individual_weights = False
+        weights_are_deltas = data.get("weights_are_deltas", False)
+        raw_planet_weights = data.get("planet_weights", {})
+        # Normalize incoming planet names so lookups match stored session keys
+        planet_weights = {
+            normalize_name(name): weights for name, weights in raw_planet_weights.items()
+        }
+        logger.info(
+            "API reference_values - POST data: use_individual_weights=%s, planet_weights=%s",
+            use_individual_weights,
+            planet_weights,
+        )
     
     default_habitability_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
     default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
@@ -418,6 +589,10 @@ def get_planet_reference_values():
     zero_phi_weights = {k: 0.0 for k in default_phi_weights}
     global_habitability_weights = session.get("habitability_weights", zero_habitability_weights)
     global_phi_weights = session.get("phi_weights", zero_phi_weights)
+    session_planet_weights = session.get("planet_weights", {})
+    session_use_individual = session.get('use_individual_weights', False)
+    initial_hab_weights_map = session.get('initial_hab_weights', {})
+    initial_phi_weights_map = session.get('initial_phi_weights', {})
     
     logger.info(f"API reference_values - Global weights: hab={global_habitability_weights}, phi={global_phi_weights}")
     
@@ -440,16 +615,113 @@ def get_planet_reference_values():
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
         
+        baseline_hab = combine_weight_sources(
+            initial_hab_weights_map.get(normalized_planet_name, {}),
+            clamp_min=HAB_WEIGHT_MIN,
+            clamp_max=HAB_WEIGHT_MAX,
+        )
+        baseline_phi = combine_weight_sources(
+            initial_phi_weights_map.get(normalized_planet_name, {}),
+            clamp_min=PHI_WEIGHT_MIN,
+            clamp_max=PHI_WEIGHT_MAX,
+        )
+
+        stored_entry = session_planet_weights.get(normalized_planet_name, {}) if session_use_individual else {}
+        stored_hab = sanitize_weight_payload(
+            stored_entry.get('habitability', {}),
+            baseline_hab,
+            HAB_WEIGHT_MIN,
+            HAB_WEIGHT_MAX,
+        )
+        stored_phi = sanitize_weight_payload(
+            stored_entry.get('phi', {}),
+            baseline_phi,
+            PHI_WEIGHT_MIN,
+            PHI_WEIGHT_MAX,
+        )
+
+        request_overrides = planet_weights.get(normalized_planet_name) if use_individual_weights else None
+        request_hab = {}
+        request_phi = {}
+        if request_overrides is not None:
+            if weights_are_deltas:
+                request_hab = convert_deltas_to_actuals(
+                    request_overrides.get('habitability', {}),
+                    baseline_hab,
+                    HAB_WEIGHT_MIN,
+                    HAB_WEIGHT_MAX,
+                )
+                request_phi = convert_deltas_to_actuals(
+                    request_overrides.get('phi', {}),
+                    baseline_phi,
+                    PHI_WEIGHT_MIN,
+                    PHI_WEIGHT_MAX,
+                )
+            else:
+                request_hab = sanitize_weight_payload(
+                    request_overrides.get('habitability', {}),
+                    baseline_hab,
+                    HAB_WEIGHT_MIN,
+                    HAB_WEIGHT_MAX,
+                )
+                request_phi = sanitize_weight_payload(
+                    request_overrides.get('phi', {}),
+                    baseline_phi,
+                    PHI_WEIGHT_MIN,
+                    PHI_WEIGHT_MAX,
+                )
+            logger.info(
+                "Using individual weights for %s: overrides=%s",
+                normalized_planet_name,
+                {'habitability': request_hab, 'phi': request_phi},
+            )
+
+        if session_use_individual or use_individual_weights:
+            effective_hab = combine_weight_sources(
+                baseline_hab,
+                stored_hab if session_use_individual else {},
+                request_hab if request_overrides is not None else {},
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            )
+            effective_phi = combine_weight_sources(
+                baseline_phi,
+                stored_phi if session_use_individual else {},
+                request_phi if request_overrides is not None else {},
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            )
+        else:
+            effective_hab = combine_weight_sources(
+                baseline_hab,
+                sanitize_weight_payload(
+                    global_habitability_weights,
+                    {},
+                    HAB_WEIGHT_MIN,
+                    HAB_WEIGHT_MAX,
+                ),
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            )
+            effective_phi = combine_weight_sources(
+                baseline_phi,
+                sanitize_weight_payload(
+                    global_phi_weights,
+                    {},
+                    PHI_WEIGHT_MIN,
+                    PHI_WEIGHT_MAX,
+                ),
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            )
+
         weights = {
-            "habitability": global_habitability_weights,
-            "phi": global_phi_weights
+            "habitability": effective_hab,
+            "habitability_components": effective_hab,
+            "phi": effective_phi,
+            "phi_components": effective_phi,
         }
-        if use_individual_weights and normalized_planet_name in planet_weights:
-            planet_specific_weights = planet_weights.get(normalized_planet_name, {})
-            weights["habitability"] = planet_specific_weights.get("habitability", global_habitability_weights)
-            weights["phi"] = planet_specific_weights.get("phi", global_phi_weights)
-            logger.info(f"Using individual weights for {normalized_planet_name}: {planet_specific_weights}")
-        
+
         processed_result = process_planet_data(
             normalized_planet_name,
             combined_data,
@@ -519,9 +791,11 @@ def results():
     global_phi_weights = session.get("phi_weights", zero_phi_weights)
 
     use_individual_weights = session.get('use_individual_weights', False)
-    individual_planet_weights_map = session.get('planet_weights', {}) 
+    individual_planet_weights_map = session.get('planet_weights', {})
     logger.info(f"Results: use_individual_weights={use_individual_weights}, individual_planet_weights_map={individual_planet_weights_map}")
     logger.info(f"Results: individual_planet_weights_map keys={list(individual_planet_weights_map.keys())}")
+    initial_hab_weights_map = session.get('initial_hab_weights', {})
+    initial_phi_weights_map = session.get('initial_phi_weights', {})
 
     if not planet_names_list:
         flash("No planets to process. Please perform a new search.", "warning")
@@ -596,12 +870,64 @@ def results():
         if use_individual_weights and normalized_planet_name in individual_planet_weights_map:
             planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
             logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
-            current_hab_weights = planet_specific_weights_entry.get('habitability', global_habitability_weights)
-            current_phi_weights = planet_specific_weights_entry.get('phi', global_phi_weights)
+            baseline_hab = combine_weight_sources(
+                initial_hab_weights_map.get(normalized_planet_name, {}),
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            )
+            baseline_phi = combine_weight_sources(
+                initial_phi_weights_map.get(normalized_planet_name, {}),
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            )
+            sanitized_hab = sanitize_weight_payload(
+                planet_specific_weights_entry.get('habitability', {}),
+                baseline_hab,
+                HAB_WEIGHT_MIN,
+                HAB_WEIGHT_MAX,
+            )
+            sanitized_phi = sanitize_weight_payload(
+                planet_specific_weights_entry.get('phi', {}),
+                baseline_phi,
+                PHI_WEIGHT_MIN,
+                PHI_WEIGHT_MAX,
+            )
+            current_hab_weights = combine_weight_sources(
+                baseline_hab,
+                sanitized_hab,
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            )
+            current_phi_weights = combine_weight_sources(
+                baseline_phi,
+                sanitized_phi,
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            )
         else:
             logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
-            current_hab_weights = global_habitability_weights
-            current_phi_weights = global_phi_weights
+            current_hab_weights = combine_weight_sources(
+                baseline_hab,
+                sanitize_weight_payload(
+                    global_habitability_weights,
+                    {},
+                    HAB_WEIGHT_MIN,
+                    HAB_WEIGHT_MAX,
+                ),
+                clamp_min=HAB_WEIGHT_MIN,
+                clamp_max=HAB_WEIGHT_MAX,
+            )
+            current_phi_weights = combine_weight_sources(
+                baseline_phi,
+                sanitize_weight_payload(
+                    global_phi_weights,
+                    {},
+                    PHI_WEIGHT_MIN,
+                    PHI_WEIGHT_MAX,
+                ),
+                clamp_min=PHI_WEIGHT_MIN,
+                clamp_max=PHI_WEIGHT_MAX,
+            )
 
         logger.info(f"Final habitability weights for '{normalized_planet_name}': {current_hab_weights}")
         logger.info(f"Final PHI weights for '{normalized_planet_name}': {current_phi_weights}")
@@ -609,8 +935,13 @@ def results():
         processed_result = process_planet_data(
             normalized_planet_name,
             combined_data,
-            {"habitability": current_hab_weights, "phi": current_phi_weights}
-        )                   
+            {
+                "habitability": current_hab_weights,
+                "habitability_components": current_hab_weights,
+                "phi": current_phi_weights,
+                "phi_components": current_phi_weights,
+            }
+        )
         
         if not processed_result:
             logger.warning(f"Processing failed or returned no data for {planet_name}. Creating placeholder.")
@@ -890,6 +1221,7 @@ def save_planet_weights():
     data = request.json
     use_individual_weights = data.get('use_individual_weights', False)
     planet_weights = data.get('planet_weights', {})
+    weights_are_deltas = data.get('weights_are_deltas', False)
 
     logger.info(f"API save-planet-weights - Raw input: {data}")
 
@@ -901,41 +1233,105 @@ def save_planet_weights():
 
     logger.info(f"API save-planet-weights - Normalized planet_weights: {normalized_planet_weights}")
 
+    default_hab_weights = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
+    default_phi_weights = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
     initial_hab_weights = session.get('initial_hab_weights', {})
     initial_phi_weights = session.get('initial_phi_weights', {})
 
-    filtered_planet_weights = {}
-    for planet_name, weights in normalized_planet_weights.items():
-        hab_weights = weights.get('habitability', {})
-        phi_weights = weights.get('phi', {})
-        filtered_hab = {}
-        filtered_phi = {}
-        for key, value in hab_weights.items():
-            if not math.isclose(value, initial_hab_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
-                filtered_hab[key] = value
-        for key, value in phi_weights.items():
-            if not math.isclose(value, initial_phi_weights.get(planet_name, {}).get(key, 0.0), rel_tol=1e-9):
-                filtered_phi[key] = value
-        if filtered_hab or filtered_phi:
-            filtered_planet_weights[planet_name] = {}
-            if filtered_hab:
-                filtered_planet_weights[planet_name]['habitability'] = filtered_hab
-            if filtered_phi:
-                filtered_planet_weights[planet_name]['phi'] = filtered_phi
+    existing_session_weights = session.get('planet_weights', {})
+    updated_session_weights = {
+        planet: {category: values.copy() for category, values in overrides.items()}
+        for planet, overrides in existing_session_weights.items()
+    }
 
-    if use_individual_weights and filtered_planet_weights:
-        existing_weights = session.get('planet_weights', {})
-        existing_weights.update(filtered_planet_weights)
-        session['planet_weights'] = existing_weights
+    saved_actual_weights = {}
+
+    for planet_name, weights in normalized_planet_weights.items():
+        baseline_hab = combine_weight_sources(
+            initial_hab_weights.get(planet_name, {}),
+            clamp_min=HAB_WEIGHT_MIN,
+            clamp_max=HAB_WEIGHT_MAX,
+        )
+        baseline_phi = combine_weight_sources(
+            initial_phi_weights.get(planet_name, {}),
+            clamp_min=PHI_WEIGHT_MIN,
+            clamp_max=PHI_WEIGHT_MAX,
+        )
+
+        if weights_are_deltas:
+            incoming_hab = convert_deltas_to_actuals(
+                weights.get('habitability', {}),
+                baseline_hab,
+                HAB_WEIGHT_MIN,
+                HAB_WEIGHT_MAX,
+            )
+            incoming_phi = convert_deltas_to_actuals(
+                weights.get('phi', {}),
+                baseline_phi,
+                PHI_WEIGHT_MIN,
+                PHI_WEIGHT_MAX,
+            )
+        else:
+            incoming_hab = sanitize_weight_payload(
+                weights.get('habitability', {}),
+                baseline_hab,
+                HAB_WEIGHT_MIN,
+                HAB_WEIGHT_MAX,
+            )
+            incoming_phi = sanitize_weight_payload(
+                weights.get('phi', {}),
+                baseline_phi,
+                PHI_WEIGHT_MIN,
+                PHI_WEIGHT_MAX,
+            )
+
+        actual_hab = combine_weight_sources(
+            baseline_hab,
+            incoming_hab,
+            clamp_min=HAB_WEIGHT_MIN,
+            clamp_max=HAB_WEIGHT_MAX,
+        )
+        actual_phi = combine_weight_sources(
+            baseline_phi,
+            incoming_phi,
+            clamp_min=PHI_WEIGHT_MIN,
+            clamp_max=PHI_WEIGHT_MAX,
+        )
+
+        saved_actual_weights[planet_name] = {
+            'habitability': actual_hab,
+            'phi': actual_phi,
+        }
+
+        planet_entry = {}
+        trimmed_hab = strip_baseline_matches(actual_hab, baseline_hab, HAB_WEIGHT_MIN, HAB_WEIGHT_MAX)
+        trimmed_phi = strip_baseline_matches(actual_phi, baseline_phi, PHI_WEIGHT_MIN, PHI_WEIGHT_MAX)
+        if trimmed_hab:
+            planet_entry['habitability'] = trimmed_hab
+        if trimmed_phi:
+            planet_entry['phi'] = trimmed_phi
+
+        if planet_entry:
+            updated_session_weights[planet_name] = planet_entry
+        else:
+            updated_session_weights.pop(planet_name, None)
+
+    if use_individual_weights:
         session['use_individual_weights'] = True
-        session.modified = True
-        logger.info(f"API save-planet-weights - Saved to session: planet_weights={session['planet_weights']}")
-        logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
+        if updated_session_weights:
+            session['planet_weights'] = updated_session_weights
+        else:
+            session.pop('planet_weights', None)
     else:
         session.pop('planet_weights', None)
         session['use_individual_weights'] = False
 
-    return jsonify({'status': 'success', 'saved_weights': filtered_planet_weights})
+    session.modified = True
+    logger.info(f"API save-planet-weights - Saved to session: planet_weights={session.get('planet_weights')}")
+    logger.info(f"API save-planet-weights - Session keys after save: {list(session.keys())}")
+
+    saved_subset = {p: saved_actual_weights.get(p, {}) for p in normalized_planet_weights.keys()}
+    return jsonify({'status': 'success', 'saved_weights': saved_subset})
 
 @routes_bp.route('/api/debug-session', methods=['GET'])
 def debug_session():
