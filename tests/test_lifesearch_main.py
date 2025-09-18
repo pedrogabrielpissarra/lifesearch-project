@@ -148,76 +148,54 @@ class TestCalculationsESI:
 class TestCalculationsPHI:
     # ---------------------------
     # PHI
-    # ---------------------------    
-    def test_phi_earth_like(self):
-        """PHI for Earth-like planet should be high"""
-        planet_data = {
-            "classification": "Terran",
-            "st_spectype": "G2V",   # solar type
-            "st_age": 4.5,          # Gyr
-            "pl_orbeccen": 0.016    # Earth eccentricity
+    # ---------------------------
+    def test_phi_all_zero_returns_zero_and_red(self):
+        """All sliders at 0.0 should yield a 0% PHI and red color."""
+        planet_data = {"pl_name": "Baseline"}
+        phi_weights = {
+            "Solid Surface": 0.0,
+            "Stable Energy": 0.0,
+            "Life Compounds": 0.0,
+            "Stable Orbit": 0.0,
         }
-        phi, _ = lm.calculate_phi_score(
-            planet_data,
-            {"Solid Surface": 0.25, "Stable Energy": 0.25,
-             "Life Compounds": 0.25, "Stable Orbit": 0.25}
-        )
-        assert 70 <= phi <= 100
 
-    def test_phi_gas_giant(self):
-        """PHI for a gas giant should return a valid score (0–100)"""
-        planet_data = {
-            "classification": "Jovian",
-            "st_spectype": "F5V",
-            "st_age": 1.0,
-            "pl_orbeccen": 0.3
-        }
-        phi, _ = lm.calculate_phi_score(
-            planet_data,
-            {"Solid Surface": 0.25, "Stable Energy": 0.25,
-             "Life Compounds": 0.25, "Stable Orbit": 0.25}
-        )
-        assert 0 <= phi <= 100
+        score, color = lm.calculate_phi_score(planet_data, phi_weights)
 
-    def test_phi_invalid_data(self):
-        """PHI should return a valid score (0–100) even when input data is missing"""
-        planet_data = {
-            "classification": "",
-            "st_spectype": "",
-            "st_age": None,
-            "pl_orbeccen": None
+        assert score == 0.0
+        assert color == "#F44336"
+
+    def test_phi_averages_slider_values(self):
+        """The PHI score should be the average of the slider values times 100."""
+        planet_data = {"pl_name": "Average"}
+        phi_weights = {
+            "Solid Surface": 1.0,
+            "Stable Energy": 0.5,
+            "Life Compounds": 0.25,
+            "Stable Orbit": 0.75,
         }
-        phi, _ = lm.calculate_phi_score(
-            planet_data,
-            {"Solid Surface": 0.25, "Stable Energy": 0.25,
-             "Life Compounds": 0.25, "Stable Orbit": 0.25}
-        )
-        assert 0 <= phi <= 100
+
+        score, _ = lm.calculate_phi_score(planet_data, phi_weights)
+
+        expected_score = ((1.0 + 0.5 + 0.25 + 0.75) / 4) * 100
+        assert score == round(expected_score, 2)
+
+    def test_phi_missing_factors_default_to_zero(self):
+        """Missing slider values should default to 0.0 in the calculation."""
+        planet_data = {"pl_name": "Partial"}
+        phi_weights = {"Solid Surface": 0.5}
+
+        score, _ = lm.calculate_phi_score(planet_data, phi_weights)
+
+        expected_score = ((0.5 + 0.0 + 0.0 + 0.0) / 4) * 100
+        assert score == round(expected_score, 2)
 
     def test_calculate_phi_score_no_factors(self):
         from lifesearch.lifesearch_main import calculate_phi_score
+
         planet_data = {"pl_name": "Empty"}
         result = calculate_phi_score(planet_data, {})
-        assert result == (0.0, "#F44336")  # sem fatores → 0 e vermelho
 
-    def test_calculate_phi_score_with_factors(self):
-        from lifesearch.lifesearch_main import calculate_phi_score
-        planet_data = {
-            "pl_name": "TerraX",
-            "classification": "Terran",
-            "st_spectype": "G2V",
-            "st_age": "4.5",
-            "pl_orbeccen": 0.05
-        }
-        phi_weights = {
-            "Solid Surface": 0.25,
-            "Stable Energy": 0.25,
-            "Life Compounds": 0.25,
-            "Stable Orbit": 0.25,
-        }
-        score, color = calculate_phi_score(planet_data, phi_weights)
-        assert score > 0
-        assert color.startswith("#")
+        assert result == (0.0, "#F44336")  # sem fatores → 0 e vermelho
 
 class TestCalculationsSPH:
     # ---------------------------

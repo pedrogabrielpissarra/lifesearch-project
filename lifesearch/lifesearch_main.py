@@ -363,82 +363,40 @@ def calculate_sph_score(planet_data, weights):
     return round(final_sph, 2), get_color_for_percentage(final_sph)
 
 def calculate_phi_score(planet_data, phi_weights):
-    """Calculates a Planetary Habitability Index (PHI) score.
-    
-    PHI is based on factors like "Solid Surface", "Stable Energy",
-    "Life Compounds" (currently not auto-assessed), and "Stable Orbit".
-    These factors are weighted according to phi_weights.
-    
+    """Calculates the Planetary Habitability Index (PHI) using slider weights.
+
+    The PHI score is determined exclusively by the four configurable factors
+    exposed in the UI sliders. Each factor value ranges from 0.0 to 1.0 and
+    is averaged to produce the final percentage.
+
     Args:
-        planet_data (dict): Dictionary containing planet and star parameters
-                            (e.g., 'classification', 'st_spectype', 'st_age', 'pl_orbeccen').
-        phi_weights (dict): Dictionary of weights for PHI factors.
-    
+        planet_data (dict): Dictionary containing planet parameters. Present
+            for API compatibility (not used in the current calculation).
+        phi_weights (dict): Dictionary with the current slider values for the
+            PHI factors.
+
     Returns:
         tuple: (float PHI_score (0-100), str color_code_for_PHI).
-               Returns 0.0 if total weight is zero.
+               Returns 0.0 if no components are available.
     """
     logger.debug(f"Calculating PHI for planet: {planet_data.get('pl_name', 'Unknown')}")
-    
-    factors_present_scores = {
-        "Solid Surface": 0.0,
-        "Stable Energy": 0.0,
-        "Life Compounds": 0.0,
-        "Stable Orbit": 0.0
-    }
 
-    # Avaliação automática de "Solid Surface"
-    if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
-        factors_present_scores["Solid Surface"] = 0.8
-        logger.debug("Solid Surface detected: score 0.8")
+    if phi_weights is None:
+        phi_weights = {}
 
-    # Avaliação automática de "Stable Energy"
-    st_spectype = planet_data.get("st_spectype", "")
-    st_age = planet_data.get("st_age")
-    if isinstance(st_spectype, str) and (st_spectype.startswith("G") or st_spectype.startswith("K")) and pd.notna(st_age):
-        try:
-            st_age_float = float(st_age.strip()) if isinstance(st_age, str) else float(st_age)
-            if 1.0 < st_age_float < 8.0:
-                factors_present_scores["Stable Energy"] = 0.7
-                logger.debug("Stable Energy conditions met: score 0.7")
-        except (ValueError, TypeError, AttributeError) as e: # pragma: no cover
-            logger.warning(f"st_age could not be converted to float for Stable Energy: {st_age}. Error: {e}") # pragma: no cover
-
-    # Avaliação automática de "Stable Orbit"
-    pl_orbeccen = planet_data.get("pl_orbeccen")
-    if pd.notna(pl_orbeccen):
-        try:
-            pl_orbeccen_float = float(pl_orbeccen.strip()) if isinstance(pl_orbeccen, str) else float(pl_orbeccen)
-            if pl_orbeccen_float < 0.2:
-                factors_present_scores["Stable Orbit"] = 0.9
-                logger.debug("Stable Orbit detected: score 0.9")
-        except (ValueError, TypeError, AttributeError) as e: # pragma: no cover
-            logger.warning(f"pl_orbeccen could not be converted to float for Stable Orbit: {pl_orbeccen}. Error: {e}") # pragma: no cover
-
-    logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
-
+    phi_factors = ["Solid Surface", "Stable Energy", "Life Compounds", "Stable Orbit"]
     phi_components = []
-    num_params = 0
-    max_weight = 0.25
 
-    for factor_name, weight_val in phi_weights.items():
-        factor_score = factors_present_scores.get(factor_name, 0.0)
-        logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
-        # Quando weight_val = 0.0, usar o score real; quando weight_val = 0.25, interpolar para 1.0
-        scaled_component = factor_score if weight_val == 0.0 else (
-            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
-        )
-        phi_components.append(scaled_component)
-        num_params += 1
-        logger.debug(f"PHI scaled component for {factor_name}: {scaled_component}, Original score: {factor_score}")
+    for factor in phi_factors:
+        weight_val = phi_weights.get(factor, 0.0)
+        phi_components.append(weight_val)
+        logger.debug(f"PHI component for {factor}: {weight_val}")
 
-    if not phi_components or num_params == 0:
-        logger.warning("No valid PHI components found.")
+    if not phi_components:
+        logger.warning("No PHI components available for averaging.")
         return 0.0, get_color_for_percentage(0.0)
 
-    final_phi = (sum(phi_components) / num_params) * 100 if num_params > 0 else 0.0
-    final_phi = max(0.0, min(final_phi, 100.0))
-
+    final_phi = (sum(phi_components) / len(phi_components)) * 100
     logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
 
     return round(final_phi, 2), get_color_for_percentage(final_phi)
