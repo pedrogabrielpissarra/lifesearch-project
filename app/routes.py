@@ -313,6 +313,8 @@ def configure():
     default_phi_weights = DEFAULT_PHI_WEIGHTS
     current_global_hab_weights = session.get("habitability_weights", ZERO_HABITABILITY_WEIGHTS)
     current_global_phi_weights = session.get("phi_weights", ZERO_PHI_WEIGHTS)
+    has_global_hab_weights = "habitability_weights" in session
+    has_global_phi_weights = "phi_weights" in session
     stored_planet_specific_weights = session.get("planet_weights", {})
     use_individual = session.get("use_individual_weights", False)
 
@@ -322,8 +324,35 @@ def configure():
     if planet_names_list:
         default_habitability_weights_ref = current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
         default_phi_weights_ref = current_app.config.get("DEFAULT_PHI_WEIGHTS", DEFAULT_PHI_WEIGHTS)
-        global_habitability_weights_ref = session.get("habitability_weights", ZERO_HABITABILITY_WEIGHTS)
-        global_phi_weights_ref = session.get("phi_weights", ZERO_PHI_WEIGHTS)
+
+        raw_global_habitability_weights = session.get("habitability_weights") if has_global_hab_weights else {}
+        raw_global_phi_weights = session.get("phi_weights") if has_global_phi_weights else {}
+
+        global_habitability_overrides = sanitize_weight_payload(
+            raw_global_habitability_weights,
+            {},
+            HAB_WEIGHT_MIN,
+            HAB_WEIGHT_MAX,
+        )
+        global_phi_overrides = sanitize_weight_payload(
+            raw_global_phi_weights,
+            {},
+            PHI_WEIGHT_MIN,
+            PHI_WEIGHT_MAX,
+        )
+
+        reference_habitability_weights = combine_weight_sources(
+            default_habitability_weights_ref,
+            global_habitability_overrides,
+            clamp_min=HAB_WEIGHT_MIN,
+            clamp_max=HAB_WEIGHT_MAX,
+        )
+        reference_phi_weights = combine_weight_sources(
+            default_phi_weights_ref,
+            global_phi_overrides,
+            clamp_min=PHI_WEIGHT_MIN,
+            clamp_max=PHI_WEIGHT_MAX,
+        )
         
         hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
         hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
@@ -344,12 +373,14 @@ def configure():
             
             logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
             
-            # Calcular ESI e PHI com pesos padrão (0.0 para habitability, 0.0 para PHI)
+            # Calcular ESI e PHI utilizando pesos de referência
             processed_result = process_planet_data(
                 normalized_planet_name,
                 combined_data,
-                {"habitability": {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}, 
-                 "phi": {"Solid Surface": 0.0, "Stable Energy": 0.0, "Life Compounds": 0.0, "Stable Orbit": 0.0}}
+                {
+                    "habitability": dict(reference_habitability_weights),
+                    "phi": dict(reference_phi_weights),
+                }
             )
             
             if processed_result:

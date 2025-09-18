@@ -202,15 +202,68 @@ document.addEventListener('DOMContentLoaded', function() {
         return rounded;
     }
 
-    function getBaselineWeight(planetNormalizedName, category, displayNameKey) {
+    function getBaselineWeight(planetNormalizedName, category, displayNameKey, weightKey) {
         const source = category === 'hab' ? INITIAL_HAB_WEIGHTS : INITIAL_PHI_WEIGHTS;
-        const planetMap = source[planetNormalizedName] || {};
-        if (planetMap[displayNameKey] !== undefined) {
-            return Number(planetMap[displayNameKey]);
-        }
         const defaults = category === 'hab' ? DEFAULT_HAB_WEIGHTS : DEFAULT_PHI_WEIGHTS;
-        const fallback = defaults[displayNameKey];
-        return fallback !== undefined ? Number(fallback) : 0.0;
+        const planetMap = (source && source[planetNormalizedName]) || {};
+        const candidates = [];
+        const addCandidate = (key) => {
+            if (typeof key !== 'string') return;
+            const normalized = key.trim();
+            if (!normalized) return;
+            if (!candidates.includes(normalized)) {
+                candidates.push(normalized);
+            }
+        };
+
+        addCandidate(displayNameKey);
+        if (typeof displayNameKey === 'string') {
+            addCandidate(displayNameKey.replace(/\s+/g, '_'));
+            addCandidate(displayNameKey.replace(/\s+/g, '').toLowerCase());
+        }
+        addCandidate(weightKey);
+        if (typeof weightKey === 'string') {
+            addCandidate(weightKey.replace(/_/g, ' '));
+            addCandidate(weightKey.replace(/_/g, '').toLowerCase());
+        }
+
+        const lookupValue = (map, candidate) => {
+            if (!map || typeof map !== 'object' || typeof candidate !== 'string') {
+                return undefined;
+            }
+            if (Object.prototype.hasOwnProperty.call(map, candidate)) {
+                return map[candidate];
+            }
+            const loweredCandidate = candidate.toLowerCase();
+            for (const key of Object.keys(map)) {
+                if (typeof key === 'string' && key.toLowerCase() === loweredCandidate) {
+                    return map[key];
+                }
+            }
+            return undefined;
+        };
+
+        for (const candidate of candidates) {
+            const value = lookupValue(planetMap, candidate);
+            if (value !== undefined) {
+                const numeric = Number(value);
+                if (Number.isFinite(numeric)) {
+                    return numeric;
+                }
+            }
+        }
+
+        for (const candidate of candidates) {
+            const value = lookupValue(defaults, candidate);
+            if (value !== undefined) {
+                const numeric = Number(value);
+                if (Number.isFinite(numeric)) {
+                    return numeric;
+                }
+            }
+        }
+
+        return category === 'phi' ? 0.25 : 1.0;
     }
 
     function getEffectiveWeight(planetNormalizedName, category, displayNameKey, baselineValue) {
@@ -351,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <div class="tab-pane fade show active" id="hab-content-${index}" role="tabpanel">
                                         <div class="row">`;
                     habFactorDefinitions.forEach(factor => {
-                        const baselineValue = getBaselineWeight(planetNormalizedName, 'hab', factor.label);
+                        const baselineValue = getBaselineWeight(planetNormalizedName, 'hab', factor.label, factor.key);
                         const effectiveValue = getEffectiveWeight(planetNormalizedName, 'hab', factor.label, baselineValue);
                         const { deltaMin, deltaMax, zeroPercent } = computeDeltaRange(baselineValue, factor.absMin, factor.absMax, factor.step);
                         let deltaValue = roundToStep(effectiveValue - baselineValue, factor.step);
@@ -393,7 +446,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div class="tab-pane fade" id="phi-content-${index}" role="tabpanel">
                                     <div class="row">`;
                     phiFactorDefinitions.forEach(factor => {
-                        const baselineValue = getBaselineWeight(planetNormalizedName, 'phi', factor.label);
+                        const baselineValue = getBaselineWeight(planetNormalizedName, 'phi', factor.label, factor.key);
                         const effectiveValue = getEffectiveWeight(planetNormalizedName, 'phi', factor.label, baselineValue);
                         const { deltaMin, deltaMax, zeroPercent } = computeDeltaRange(baselineValue, factor.absMin, factor.absMax, factor.step);
                         let deltaValue = roundToStep(effectiveValue - baselineValue, factor.step);
