@@ -209,12 +209,13 @@ def configure():
             
             logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
             
-            # Calcular ESI e PHI com pesos padrão (0.0 para habitability, 0.0 para PHI)
             processed_result = process_planet_data(
                 normalized_planet_name,
                 combined_data,
-                {"habitability": {"Size": 0.0, "Density": 0.0, "Habitable Zone": 0.0}, 
-                 "phi": {"Solid Surface": 0.0, "Stable Energy": 0.0, "Life Compounds": 0.0, "Stable Orbit": 0.0}}
+                {
+                    "habitability": DEFAULT_HABITABILITY_WEIGHTS,
+                    "phi": DEFAULT_PHI_WEIGHTS
+                }
             )
             
             if processed_result:
@@ -401,6 +402,8 @@ def get_planet_reference_values():
     
     if not planet_names_list:
         return jsonify({"planets": []})
+    
+    # Pesos padrão são definidos globalmente como DEFAULT_HABITABILITY_WEIGHTS e DEFAULT_PHI_WEIGHTS
     
     use_individual_weights = False
     planet_weights = {}

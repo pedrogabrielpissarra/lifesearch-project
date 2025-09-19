@@ -286,40 +286,42 @@ def calculate_esi_score(planet_data, weights):
     }
     esi_components = []
     num_params = 0
-    max_weight = 1.0
+    MAX_WEIGHT = 1.0  # Constante em maiúsculo
 
     for param_key, weight_val in esi_factors_map.items():
         planet_val = planet_data.get(param_key)
         earth_val = earth_params.get(param_key)
-        logger.debug(f"ESI param: {param_key}, Planet val: {planet_val}, Earth val: {earth_val}, Weight: {weight_val}")
+        
         if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
             try:
                 planet_val_fl = float(planet_val)
                 earth_val_fl = float(earth_val)
+                
+                # Calcula a similaridade
                 if (planet_val_fl + earth_val_fl) == 0:
-                    similarity_component = 0.0 # pragma: no cover
+                    similarity_component = 0.0
                 else:
                     similarity_component = 1.0 - abs((planet_val_fl - earth_val_fl) / (planet_val_fl + earth_val_fl))
                 if similarity_component < 0:
-                    similarity_component = 0.0 # pragma: no cover
-                # Quando weight_val = 0.0, usar a similaridade real
-                scaled_component = similarity_component if weight_val == 0.0 else (
-                    similarity_component + (1.0 - similarity_component) * (weight_val / max_weight)
-                )
+                    similarity_component = 0.0
+
+                # Multiplicação direta pelo peso (como um botão de volume)
+                scaled_component = similarity_component * (weight_val / MAX_WEIGHT)  # Aqui usamos MAX_WEIGHT
+                
                 esi_components.append(scaled_component)
                 num_params += 1
                 logger.debug(f"ESI scaled component for {param_key}: {scaled_component}, Similarity: {similarity_component}")
-            except (ValueError, TypeError) as e: # pragma: no cover
-                logger.warning(f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}") # pragma: no cover
-        else:
-            logger.debug(f"Skipping ESI param {param_key} due to missing or invalid data: planet_val={planet_val}, earth_val={earth_val}")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not convert ESI param {param_key} values to float: {planet_val}, {earth_val}. Error: {e}")
 
     if not esi_components or num_params == 0:
         logger.warning("No valid ESI components found.")
         return 0.0, get_color_for_percentage(0.0)
 
-    final_esi = (sum(esi_components) / num_params) * 100 if num_params > 0 else 0.0
-    logger.info(f"Final ESI for {planet_data.get('pl_name', 'Unknown')}: {final_esi}")
+    # Calcula a média normalizada pelo número total de parâmetros
+    final_esi = (sum(esi_components) / num_params) * 100
+    final_esi = max(0.0, min(final_esi, 100.0))
+    
     return round(final_esi, 2), get_color_for_percentage(final_esi)
 
 def calculate_sph_score(planet_data, weights):
@@ -387,12 +389,11 @@ def calculate_phi_score(planet_data, phi_weights):
         "Stable Orbit": 0.0
     }
 
-    # Avaliação automática de "Solid Surface"
+    # Avaliação automática dos fatores (mantém o código existente)
     if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
         factors_present_scores["Solid Surface"] = 0.8
         logger.debug("Solid Surface detected: score 0.8")
 
-    # Avaliação automática de "Stable Energy"
     st_spectype = planet_data.get("st_spectype", "")
     st_age = planet_data.get("st_age")
     if isinstance(st_spectype, str) and (st_spectype.startswith("G") or st_spectype.startswith("K")) and pd.notna(st_age):
@@ -401,10 +402,9 @@ def calculate_phi_score(planet_data, phi_weights):
             if 1.0 < st_age_float < 8.0:
                 factors_present_scores["Stable Energy"] = 0.7
                 logger.debug("Stable Energy conditions met: score 0.7")
-        except (ValueError, TypeError, AttributeError) as e: # pragma: no cover
-            logger.warning(f"st_age could not be converted to float for Stable Energy: {st_age}. Error: {e}") # pragma: no cover
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"st_age could not be converted to float for Stable Energy: {st_age}. Error: {e}")
 
-    # Avaliação automática de "Stable Orbit"
     pl_orbeccen = planet_data.get("pl_orbeccen")
     if pd.notna(pl_orbeccen):
         try:
@@ -412,8 +412,8 @@ def calculate_phi_score(planet_data, phi_weights):
             if pl_orbeccen_float < 0.2:
                 factors_present_scores["Stable Orbit"] = 0.9
                 logger.debug("Stable Orbit detected: score 0.9")
-        except (ValueError, TypeError, AttributeError) as e: # pragma: no cover
-            logger.warning(f"pl_orbeccen could not be converted to float for Stable Orbit: {pl_orbeccen}. Error: {e}") # pragma: no cover
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"pl_orbeccen could not be converted to float for Stable Orbit: {pl_orbeccen}. Error: {e}")
 
     logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
 
@@ -423,24 +423,24 @@ def calculate_phi_score(planet_data, phi_weights):
 
     for factor_name, weight_val in phi_weights.items():
         factor_score = factors_present_scores.get(factor_name, 0.0)
-        logger.debug(f"Processing PHI factor: {factor_name}, score: {factor_score}, weight: {weight_val}")
-        # Quando weight_val = 0.0, usar o score real; quando weight_val = 0.25, interpolar para 1.0
+        
+        # Volta para a interpolação original que funcionava
         scaled_component = factor_score if weight_val == 0.0 else (
             factor_score + (1.0 - factor_score) * (weight_val / max_weight)
         )
         phi_components.append(scaled_component)
         num_params += 1
-        logger.debug(f"PHI scaled component for {factor_name}: {scaled_component}, Original score: {factor_score}")
 
     if not phi_components or num_params == 0:
         logger.warning("No valid PHI components found.")
         return 0.0, get_color_for_percentage(0.0)
 
-    final_phi = (sum(phi_components) / num_params) * 100 if num_params > 0 else 0.0
+    # Calcula a média considerando apenas os componentes ativos
+    final_phi = (sum(phi_components) / 4.0) * 100  # Divide por 4 (número total de fatores)
     final_phi = max(0.0, min(final_phi, 100.0))
 
     logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
-
+    
     return round(final_phi, 2), get_color_for_percentage(final_phi)
 
 # --- Habiitability Score Calculation Function - Lifersearch Project ---
