@@ -119,6 +119,87 @@ def _merge_weights_with_defaults(defaults, overrides):
     return merged
 
 
+def _is_close(a, b, rel_tol=1e-9, abs_tol=1e-12):
+    """Safe float comparison that tolerates string inputs."""
+    try:
+        return math.isclose(float(a), float(b), rel_tol=rel_tol, abs_tol=abs_tol)
+    except (TypeError, ValueError):
+        return False
+
+
+def _update_weights_in_place(base, overrides):
+    """Coerce and apply overrides into an existing weight dictionary."""
+    if not overrides or not isinstance(overrides, dict):
+        return
+    for key, value in overrides.items():
+        fallback = base.get(key)
+        coerced = _coerce_weight_value(value, fallback)
+        if coerced is not None:
+            base[key] = coerced
+
+
+def build_planet_weight_sets(
+    normalized_planet_name,
+    default_hab_weights,
+    default_phi_weights,
+    global_hab_weights,
+    global_phi_weights,
+    initial_hab_weights,
+    initial_phi_weights,
+    planet_specific_weights,
+    use_individual,
+):
+    """Resolve the effective habitability and PHI weights for a planet."""
+
+    hab_weights = {key: default_hab_weights[key] for key in default_hab_weights}
+    phi_weights = {key: default_phi_weights[key] for key in default_phi_weights}
+
+    initial_hab = initial_hab_weights.get(normalized_planet_name)
+    if isinstance(initial_hab, dict):
+        _update_weights_in_place(hab_weights, initial_hab)
+
+    initial_phi = initial_phi_weights.get(normalized_planet_name)
+    if isinstance(initial_phi, dict):
+        _update_weights_in_place(phi_weights, initial_phi)
+
+    for key, value in global_hab_weights.items():
+        default_val = default_hab_weights.get(key)
+        fallback = hab_weights.get(key, default_val)
+        coerced = _coerce_weight_value(value, fallback)
+        if coerced is None:
+            continue
+        if initial_hab and default_val is not None and _is_close(coerced, default_val):
+            continue
+        hab_weights[key] = coerced
+
+    for key, value in global_phi_weights.items():
+        default_val = default_phi_weights.get(key)
+        fallback = phi_weights.get(key, default_val)
+        coerced = _coerce_weight_value(value, fallback)
+        if coerced is None:
+            continue
+        if initial_phi and default_val is not None and _is_close(coerced, default_val):
+            continue
+        phi_weights[key] = coerced
+
+    if use_individual and planet_specific_weights:
+        planet_entry = planet_specific_weights.get(normalized_planet_name)
+        if planet_entry is None:
+            for raw_name, override_values in planet_specific_weights.items():
+                if normalize_name(raw_name) == normalized_planet_name:
+                    planet_entry = override_values
+                    break
+        if isinstance(planet_entry, dict):
+            hab_overrides = planet_entry.get("habitability")
+            if isinstance(hab_overrides, dict):
+                _update_weights_in_place(hab_weights, hab_overrides)
+            phi_overrides = planet_entry.get("phi")
+            if isinstance(phi_overrides, dict):
+                _update_weights_in_place(phi_weights, phi_overrides)
+
+    return hab_weights, phi_weights
+
+
 def get_effective_weights(session_key, defaults):
     """Retrieve weight configuration from the session, falling back to defaults.
 
@@ -379,17 +460,17 @@ def configure():
             
             logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
             
-            habitability_weights_for_planet = dict(current_global_hab_weights)
-            phi_weights_for_planet = dict(current_global_phi_weights)
-            if use_individual:
-                planet_specific_entry = current_planet_specific_weights.get(normalized_planet_name, {})
-                if isinstance(planet_specific_entry, dict):
-                    hab_overrides = planet_specific_entry.get("habitability")
-                    if isinstance(hab_overrides, dict):
-                        habitability_weights_for_planet.update(hab_overrides)
-                    phi_overrides = planet_specific_entry.get("phi")
-                    if isinstance(phi_overrides, dict):
-                        phi_weights_for_planet.update(phi_overrides)
+            habitability_weights_for_planet, phi_weights_for_planet = build_planet_weight_sets(
+                normalized_planet_name,
+                default_hab_weights,
+                default_phi_weights,
+                current_global_hab_weights,
+                current_global_phi_weights,
+                initial_hab_weights,
+                initial_phi_weights,
+                current_planet_specific_weights,
+                use_individual,
+            )
 
             processed_result = process_planet_data(
                 normalized_planet_name,
@@ -403,9 +484,9 @@ def configure():
             if processed_result:
                 planet_data = processed_result.get("planet_data_dict", {})
                 scores = processed_result.get("scores_for_report", {})
-                
+
                 logger.info(f"Configure: scores para {normalized_planet_name}: {scores}")
-                
+
                 esi_data = scores.get("ESI")
                 if isinstance(esi_data, tuple):
                     esi_val = esi_data[0]
@@ -422,6 +503,63 @@ def configure():
                 else:
                     phi_val = 0.0
 
+                recompute_with_initials = False
+                if normalized_planet_name not in initial_hab_weights:
+                    initial_hab_weights[normalized_planet_name] = calculate_initial_habitability_weights(
+                        planet_data, esi_val
+                    )
+                    initial_hab_changed = True
+                    recompute_with_initials = True
+                if normalized_planet_name not in initial_phi_weights:
+                    initial_phi_weights[normalized_planet_name] = calculate_initial_phi_weights(
+                        planet_data, phi_val
+                    )
+                    initial_phi_changed = True
+                    recompute_with_initials = True
+
+                if recompute_with_initials:
+                    habitability_weights_for_planet, phi_weights_for_planet = build_planet_weight_sets(
+                        normalized_planet_name,
+                        default_hab_weights,
+                        default_phi_weights,
+                        current_global_hab_weights,
+                        current_global_phi_weights,
+                        initial_hab_weights,
+                        initial_phi_weights,
+                        current_planet_specific_weights,
+                        use_individual,
+                    )
+                    processed_result = process_planet_data(
+                        normalized_planet_name,
+                        combined_data,
+                        {
+                            "habitability": habitability_weights_for_planet,
+                            "phi": phi_weights_for_planet
+                        }
+                    )
+                    if not processed_result:
+                        logger.warning(
+                            "Reprocessing with initial weights failed for %s", normalized_planet_name
+                        )
+                        continue
+                    planet_data = processed_result.get("planet_data_dict", {})
+                    scores = processed_result.get("scores_for_report", {})
+                    esi_data = scores.get("ESI")
+                    if isinstance(esi_data, tuple):
+                        esi_val = esi_data[0]
+                    elif isinstance(esi_data, (float, int)):
+                        esi_val = esi_data
+                    else:
+                        esi_val = 0.0
+
+                    phi_data = scores.get("PHI")
+                    if isinstance(phi_data, tuple):
+                        phi_val = phi_data[0]
+                    elif isinstance(phi_data, (float, int)):
+                        phi_val = phi_data
+                    else:
+                        phi_val = 0.0
+
                 reference_planet = {
                     "name": planet_data.get("pl_name", normalized_planet_name),
                     "esi": esi_val,
@@ -429,17 +567,6 @@ def configure():
                     "classification": planet_data.get("classification", "Unknown")
                 }
                 reference_values.append(reference_planet)
-
-                if normalized_planet_name not in initial_hab_weights:
-                    initial_hab_weights[normalized_planet_name] = calculate_initial_habitability_weights(
-                        planet_data, esi_val
-                    )
-                    initial_hab_changed = True
-                if normalized_planet_name not in initial_phi_weights:
-                    initial_phi_weights[normalized_planet_name] = calculate_initial_phi_weights(
-                        planet_data, phi_val
-                    )
-                    initial_phi_changed = True
     if initial_hab_changed or "initial_hab_weights" not in session:
         session['initial_hab_weights'] = initial_hab_weights
         session.modified = True
@@ -528,6 +655,19 @@ def get_planet_reference_values():
     global_phi_weights = get_effective_weights("phi_weights", default_phi_weights)
     
     logger.info(f"API reference_values - Global weights: hab={global_habitability_weights}, phi={global_phi_weights}")
+
+    initial_hab_weights = {
+        key: dict(value)
+        for key, value in session.get("initial_hab_weights", {}).items()
+        if isinstance(value, dict)
+    }
+    initial_phi_weights = {
+        key: dict(value)
+        for key, value in session.get("initial_phi_weights", {}).items()
+        if isinstance(value, dict)
+    }
+    initial_hab_changed = False
+    initial_phi_changed = False
     
     hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
     hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
@@ -548,38 +688,90 @@ def get_planet_reference_values():
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
         
-        weights = {
-            "habitability": dict(global_habitability_weights),
-            "phi": dict(global_phi_weights)
-        }
-        if use_individual_weights:
-            planet_specific_weights = planet_weights.get(normalized_planet_name)
-            if not planet_specific_weights:
-                for raw_name, override_values in planet_weights.items():
-                    if normalize_name(raw_name) == normalized_planet_name:
-                        planet_specific_weights = override_values
-                        break
-            if isinstance(planet_specific_weights, dict):
-                hab_overrides = planet_specific_weights.get("habitability")
-                if isinstance(hab_overrides, dict):
-                    weights["habitability"].update(hab_overrides)
-                phi_overrides = planet_specific_weights.get("phi")
-                if isinstance(phi_overrides, dict):
-                    weights["phi"].update(phi_overrides)
-                logger.info(f"Using individual weights for {normalized_planet_name}: {planet_specific_weights}")
-        
+        current_hab_weights, current_phi_weights = build_planet_weight_sets(
+            normalized_planet_name,
+            default_habitability_weights,
+            default_phi_weights,
+            global_habitability_weights,
+            global_phi_weights,
+            initial_hab_weights,
+            initial_phi_weights,
+            planet_weights if use_individual_weights else {},
+            use_individual_weights,
+        )
+
+        logger.info(f"API reference_values - Weights for {normalized_planet_name}: hab={current_hab_weights}, phi={current_phi_weights}")
+
         processed_result = process_planet_data(
             normalized_planet_name,
             combined_data,
-            weights
+            {"habitability": current_hab_weights, "phi": current_phi_weights}
         )
-        
-        if processed_result:
+
+        if not processed_result:
+            logger.warning(f"Processing failed or returned no data for {planet_name}. Skipping individual reference entry.")
+            continue
+
+        planet_data = processed_result.get("planet_data_dict", {})
+        scores = processed_result.get("scores_for_report", {})
+
+        logger.info(f"API reference_values - Scores for {normalized_planet_name}: {scores}")
+
+        esi_data_api = scores.get("ESI")
+        if isinstance(esi_data_api, tuple):
+            esi_val_api = esi_data_api[0]
+        elif isinstance(esi_data_api, (float, int)):
+            esi_val_api = esi_data_api
+        else:
+            esi_val_api = 0.0
+
+        phi_data_api = scores.get("PHI")
+        if isinstance(phi_data_api, tuple):
+            phi_val_api = phi_data_api[0]
+        elif isinstance(phi_data_api, (float, int)):
+            phi_val_api = phi_data_api
+        else:
+            phi_val_api = 0.0
+
+        recompute_with_initials = False
+        if normalized_planet_name not in initial_hab_weights:
+            initial_hab_weights[normalized_planet_name] = calculate_initial_habitability_weights(
+                planet_data, esi_val_api
+            )
+            initial_hab_changed = True
+            recompute_with_initials = True
+        if normalized_planet_name not in initial_phi_weights:
+            initial_phi_weights[normalized_planet_name] = calculate_initial_phi_weights(
+                planet_data, phi_val_api
+            )
+            initial_phi_changed = True
+            recompute_with_initials = True
+
+        if recompute_with_initials:
+            current_hab_weights, current_phi_weights = build_planet_weight_sets(
+                normalized_planet_name,
+                default_habitability_weights,
+                default_phi_weights,
+                global_habitability_weights,
+                global_phi_weights,
+                initial_hab_weights,
+                initial_phi_weights,
+                planet_weights if use_individual_weights else {},
+                use_individual_weights,
+            )
+            processed_result = process_planet_data(
+                normalized_planet_name,
+                combined_data,
+                {"habitability": current_hab_weights, "phi": current_phi_weights}
+            )
+            if not processed_result:
+                logger.warning(
+                    "Reprocessing API reference values with initial weights failed for %s",
+                    normalized_planet_name,
+                )
+                continue
             planet_data = processed_result.get("planet_data_dict", {})
             scores = processed_result.get("scores_for_report", {})
-            
-            logger.info(f"API reference_values - Scores for {normalized_planet_name}: {scores}")
-            
             esi_data_api = scores.get("ESI")
             if isinstance(esi_data_api, tuple):
                 esi_val_api = esi_data_api[0]
@@ -587,7 +779,7 @@ def get_planet_reference_values():
                 esi_val_api = esi_data_api
             else:
                 esi_val_api = 0.0
-            
+
             phi_data_api = scores.get("PHI")
             if isinstance(phi_data_api, tuple):
                 phi_val_api = phi_data_api[0]
@@ -595,15 +787,22 @@ def get_planet_reference_values():
                 phi_val_api = phi_data_api
             else:
                 phi_val_api = 0.0
-            
-            reference_planet = {
-                "name": planet_data.get("pl_name", normalized_planet_name),
-                "esi": esi_val_api,
-                "phi": phi_val_api,
-                "classification": planet_data.get("classification", "Unknown")
-            }
-            
-            reference_planets.append(reference_planet)
+
+        reference_planet = {
+            "name": planet_data.get("pl_name", normalized_planet_name),
+            "esi": esi_val_api,
+            "phi": phi_val_api,
+            "classification": planet_data.get("classification", "Unknown")
+        }
+
+        reference_planets.append(reference_planet)
+
+    if initial_hab_changed:
+        session['initial_hab_weights'] = initial_hab_weights
+        session.modified = True
+    if initial_phi_changed:
+        session['initial_phi_weights'] = initial_phi_weights
+        session.modified = True
     
     return jsonify({"planets": reference_planets})
 
@@ -639,7 +838,19 @@ def results():
     global_phi_weights = get_effective_weights("phi_weights", default_phi_weights)
 
     use_individual_weights = session.get('use_individual_weights', False)
-    individual_planet_weights_map = session.get('planet_weights', {}) 
+    individual_planet_weights_map = session.get('planet_weights', {})
+    initial_hab_weights = {
+        key: dict(value)
+        for key, value in session.get("initial_hab_weights", {}).items()
+        if isinstance(value, dict)
+    }
+    initial_phi_weights = {
+        key: dict(value)
+        for key, value in session.get("initial_phi_weights", {}).items()
+        if isinstance(value, dict)
+    }
+    initial_hab_changed = False
+    initial_phi_changed = False
     logger.info(f"Results: use_individual_weights={use_individual_weights}, individual_planet_weights_map={individual_planet_weights_map}")
     logger.info(f"Results: individual_planet_weights_map keys={list(individual_planet_weights_map.keys())}")
 
@@ -713,29 +924,17 @@ def results():
         logger.info(f"Normalized planet name: '{planet_name}' -> '{normalized_planet_name}'")
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
 
-        current_hab_weights = dict(global_habitability_weights)
-        current_phi_weights = dict(global_phi_weights)
-        if use_individual_weights:
-            planet_specific_weights_entry = individual_planet_weights_map.get(normalized_planet_name)
-            if planet_specific_weights_entry is None:
-                for raw_name, override_values in individual_planet_weights_map.items():
-                    if normalize_name(raw_name) == normalized_planet_name:
-                        planet_specific_weights_entry = override_values
-                        break
-            if isinstance(planet_specific_weights_entry, dict):
-                logger.info(f"Found individual weights for '{normalized_planet_name}': {planet_specific_weights_entry}")
-                hab_overrides = planet_specific_weights_entry.get('habitability')
-                if isinstance(hab_overrides, dict):
-                    current_hab_weights.update(hab_overrides)
-                phi_overrides = planet_specific_weights_entry.get('phi')
-                if isinstance(phi_overrides, dict):
-                    current_phi_weights.update(phi_overrides)
-            else:
-                logger.info(
-                    f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights."
-                )
-        else:
-            logger.info(f"No individual weights found for '{normalized_planet_name}' or use_individual_weights=False. Using global weights.")
+        current_hab_weights, current_phi_weights = build_planet_weight_sets(
+            normalized_planet_name,
+            default_habitability_weights,
+            default_phi_weights,
+            global_habitability_weights,
+            global_phi_weights,
+            initial_hab_weights,
+            initial_phi_weights,
+            individual_planet_weights_map if use_individual_weights else {},
+            use_individual_weights,
+        )
 
         logger.info(f"Final habitability weights for '{normalized_planet_name}': {current_hab_weights}")
         logger.info(f"Final PHI weights for '{normalized_planet_name}': {current_phi_weights}")
@@ -744,8 +943,8 @@ def results():
             normalized_planet_name,
             combined_data,
             {"habitability": current_hab_weights, "phi": current_phi_weights}
-        )                   
-        
+        )
+
         if not processed_result:
             logger.warning(f"Processing failed or returned no data for {planet_name}. Creating placeholder.")
             processed_result = {
@@ -761,6 +960,64 @@ def results():
         sephi_scores_for_report = processed_result.get("sephi_scores_for_report", {})
         hz_data_tuple = processed_result.get("hz_data_tuple")
         star_info = processed_result.get("star_info", {})
+
+        esi_data_result = scores_for_report.get("ESI")
+        if isinstance(esi_data_result, tuple):
+            esi_val = esi_data_result[0]
+        elif isinstance(esi_data_result, (float, int)):
+            esi_val = esi_data_result
+        else:
+            esi_val = 0.0
+
+        phi_data_result = scores_for_report.get("PHI")
+        if isinstance(phi_data_result, tuple):
+            phi_val = phi_data_result[0]
+        elif isinstance(phi_data_result, (float, int)):
+            phi_val = phi_data_result
+        else:
+            phi_val = 0.0
+
+        recompute_with_initials = False
+        if normalized_planet_name not in initial_hab_weights:
+            initial_hab_weights[normalized_planet_name] = calculate_initial_habitability_weights(
+                planet_data_dict, esi_val
+            )
+            initial_hab_changed = True
+            recompute_with_initials = True
+        if normalized_planet_name not in initial_phi_weights:
+            initial_phi_weights[normalized_planet_name] = calculate_initial_phi_weights(
+                planet_data_dict, phi_val
+            )
+            initial_phi_changed = True
+            recompute_with_initials = True
+
+        if recompute_with_initials:
+            current_hab_weights, current_phi_weights = build_planet_weight_sets(
+                normalized_planet_name,
+                default_habitability_weights,
+                default_phi_weights,
+                global_habitability_weights,
+                global_phi_weights,
+                initial_hab_weights,
+                initial_phi_weights,
+                individual_planet_weights_map if use_individual_weights else {},
+                use_individual_weights,
+            )
+            processed_result = process_planet_data(
+                normalized_planet_name,
+                combined_data,
+                {"habitability": current_hab_weights, "phi": current_phi_weights}
+            )
+            if not processed_result:
+                logger.warning(
+                    "Reprocessing results with initial weights failed for %s", normalized_planet_name
+                )
+                continue
+            planet_data_dict = processed_result.get("planet_data_dict", {})
+            scores_for_report = processed_result.get("scores_for_report", {})
+            sephi_scores_for_report = processed_result.get("sephi_scores_for_report", {})
+            hz_data_tuple = processed_result.get("hz_data_tuple")
+            star_info = processed_result.get("star_info", {})
         
         plots = {}
         hz_plot_filename = plot_habitable_zone(
@@ -801,6 +1058,13 @@ def results():
             flash(f"Error generating individual report for {planet_name}: {e}", "warning")
         
         all_planets_processed_data_for_summary.append(processed_result)
+
+    if initial_hab_changed:
+        session['initial_hab_weights'] = initial_hab_weights
+        session.modified = True
+    if initial_phi_changed:
+        session['initial_phi_weights'] = initial_phi_weights
+        session.modified = True
 
     if all_planets_processed_data_for_summary:
         logger.info(f"Attempting to generate summary and combined reports for {len(all_planets_processed_data_for_summary)} processed planet entries.")

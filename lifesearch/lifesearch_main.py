@@ -423,10 +423,22 @@ def calculate_phi_score(planet_data, phi_weights):
 
     for factor_name, weight_val in phi_weights.items():
         factor_score = factors_present_scores.get(factor_name, 0.0)
-        
+        try:
+            weight_float = float(weight_val)
+        except (TypeError, ValueError):
+            logger.debug(
+                "PHI weight for %s could not be converted to float: %s",
+                factor_name,
+                weight_val,
+            )
+            continue
+
+        # Clamp to a meaningful range (0 to max_weight) to avoid runaway scaling
+        weight_float = max(0.0, min(weight_float, max_weight))
+
         # Volta para a interpolação original que funcionava
-        scaled_component = factor_score if weight_val == 0.0 else (
-            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
+        scaled_component = factor_score if weight_float == 0.0 else (
+            factor_score + (1.0 - factor_score) * (weight_float / max_weight)
         )
         phi_components.append(scaled_component)
         num_params += 1
