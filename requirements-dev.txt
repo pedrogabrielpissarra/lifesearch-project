@@ -9,3 +9,10 @@ pytest-cov
 # Documentation
 mkdocs==1.6.1
 pymdown-extensions==10.11
+mkdocs-material>=9.5.0
+mkdocstrings[python]>=0.25.0
+mkdocs-awesome-pages-plugin>=2.9.2
+mkdocs-gen-files>=0.5.0
+mkdocs-literate-nav>=0.6.1
+mkdocs-section-index>=0.3.8
+mkdocs-mermaid2-plugin>=0.6.0
