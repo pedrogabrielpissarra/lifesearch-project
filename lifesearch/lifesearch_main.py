@@ -417,30 +417,37 @@ def calculate_phi_score(planet_data, phi_weights):
 
     logger.debug(f"PHI factors_present_scores: {factors_present_scores}")
 
-    phi_components = []
-    num_params = 0
-    max_weight = 0.25
+    total_weighted_score = 0.0
+    total_weight_sum = 0.0
 
     for factor_name, weight_val in phi_weights.items():
-        factor_score = factors_present_scores.get(factor_name, 0.0)
-        
-        # Volta para a interpolação original que funcionava
-        scaled_component = factor_score if weight_val == 0.0 else (
-            factor_score + (1.0 - factor_score) * (weight_val / max_weight)
-        )
-        phi_components.append(scaled_component)
-        num_params += 1
+        try:
+            weight_float = float(weight_val)
+        except (TypeError, ValueError):
+            logger.warning(
+                "PHI weight for '%s' is invalid (%s). Skipping this factor.",
+                factor_name,
+                weight_val,
+            )
+            continue
 
-    if not phi_components or num_params == 0:
-        logger.warning("No valid PHI components found.")
+        if weight_float <= 0:
+            continue
+
+        factor_score = factors_present_scores.get(factor_name, 0.0)
+        total_weighted_score += factor_score * weight_float
+        total_weight_sum += weight_float
+
+    if total_weight_sum == 0:
+        logger.warning("Total PHI weights sum to zero. Cannot calculate PHI.")
         return 0.0, get_color_for_percentage(0.0)
 
-    # Calcula a média considerando apenas os componentes ativos
-    final_phi = (sum(phi_components) / 4.0) * 100  # Divide por 4 (número total de fatores)
+    # Calcula a média ponderada
+    final_phi = (total_weighted_score / total_weight_sum) * 100
     final_phi = max(0.0, min(final_phi, 100.0))
 
     logger.info(f"Final PHI for {planet_data.get('pl_name', 'Unknown')}: {final_phi}")
-    
+
     return round(final_phi, 2), get_color_for_percentage(final_phi)
 
 # --- Habiitability Score Calculation Function - Lifersearch Project ---
