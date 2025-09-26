@@ -1,0 +1,134 @@
+{
+	"info": {
+		"_postman_id": "f44a9a53-13ce-4e54-af06-7054cbe9f996",
+		"name": "LifeSearch API",
+		"description": "Postman collection for testing LifeSearch endpoints with session simulation.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "47761624",
+		"_collection_link": "https://pedro-pissarra-3213239.postman.co/workspace/Pedro-Gabriel-Pissarra's-Worksp~d186f570-1108-42ba-88f9-fa86f1642906/collection/47761624-f44a9a53-13ce-4e54-af06-7054cbe9f996?action=share&source=collection_link&creator=47761624"
+	},
+	"item": [
+		{
+			"name": "Configure (Weight congiguration page)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/configure",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"configure"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Simulate Planet Selection (Index POST)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 or redirect\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([200, 302]);",
+							"});",
+							"",
+							"// Capture session cookie",
+							"var cookieJar = pm.cookies;",
+							"pm.environment.set(\"session_cookie\", JSON.stringify(cookieJar));"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/x-www-form-urlencoded"
+					}
+				],
+				"body": {
+					"mode": "urlencoded",
+					"urlencoded": [
+						{
+							"key": "planet_names",
+							"value": "Kepler-22 b, Kepler-442 b, TRAPPIST-1 e",
+							"type": "text"
+						},
+						{
+							"key": "parameter_overrides",
+							"value": "",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "API - Reference Values (POST)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"use_individual_weights\": true,\n  \"planet_weights\": {\n    \"kepler22b\": {\n      \"habitability\": {\"Size\": 0.8, \"Density\": 1.0},\n      \"phi\": {\"Stable Orbit\": 0.9}\n    }\n  }\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/planets/reference_values",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"planets",
+						"reference_values"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Results (Reports)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/results",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"results"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:5000"
+		}
+	]
+}
