@@ -38,7 +38,7 @@ from .forms import HabitabilityWeightsForm, PHIWeightsForm, PlanetSearchForm
 
 logger = logging.getLogger(__name__)
 
-# 🔹 CRIA O BLUEPRINT
+# Blueprint for routes
 routes_bp = Blueprint("routes", __name__)
 
 
@@ -59,9 +59,6 @@ def replace_nan_with_none(obj):
     elif isinstance(obj, float) and math.isnan(obj):
         return None
     return obj
-
-import math # Garanta que math seja importado no topo de routes.py
-
 
 def get_template_env():
     """Initializes and returns a Jinja2 template environment.
@@ -506,7 +503,7 @@ def get_planet_reference_values():
     if not planet_names_list:
         return jsonify({"planets": []})
     
-    # Pesos padrão são definidos globalmente como DEFAULT_HABITABILITY_WEIGHTS e DEFAULT_PHI_WEIGHTS
+    # Handle POST data for individual weights without saving to session
     
     use_individual_weights = False
     planet_weights = {}

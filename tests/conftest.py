@@ -2,12 +2,12 @@ import sys
 import os
 import types
 
-# 🔹 Mock do matplotlib para evitar erro em ambiente de teste
+# Mock from matplotlib to avoid GUI issues during tests
 mock = types.ModuleType("matplotlib")
 mock.use = lambda *args, **kwargs: None
 mock.__version__ = "mocked"
 
-# Dummy bar para simular barras no gráfico
+# Dummy bar to simulate bar objects returned by barh
 class DummyBar:
     def get_width(self): return 42.0
     def get_y(self): return 1.0
@@ -28,13 +28,13 @@ class DummyAx:
 
 dummy_ax = DummyAx()
 
-# Função fake para simular salvamento de arquivos de gráfico
+# Fake savefig to avoid actual file creation
 def fake_savefig(path, *a, **kw):
     with open(path, "wb") as f:
         f.write(b"")
     return None
 
-# Submódulos necessários
+# Submodule pyplot mock
 mock_pyplot = types.SimpleNamespace(
     subplots=lambda *a, **kw: (None, dummy_ax),
     savefig=fake_savefig,
@@ -43,9 +43,9 @@ mock_pyplot = types.SimpleNamespace(
 )
 mock.pyplot = mock_pyplot
 
-# Registrar mocks no sys.modules
+# Register the mock in sys.modules
 sys.modules["matplotlib"] = mock
 sys.modules["matplotlib.pyplot"] = mock_pyplot
 
-# 🔹 Garante que a raiz do projeto esteja no sys.path
+# Ensure the parent directory is in sys.path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

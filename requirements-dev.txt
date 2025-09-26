@@ -1,4 +1,4 @@
--r requirements.txt  # inclui as libs de produção
+-r requirements.txt  # include production dependencies
 
 # Development & testing
 pytest==8.4.2

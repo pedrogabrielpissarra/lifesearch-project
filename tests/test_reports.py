@@ -8,14 +8,14 @@ from lifesearch import reports
 
 @pytest.fixture
 def tmp_output_dir():
-    """Cria diretório temporário para salvar os relatórios/figuras."""
+    """Create a temporary directory for output files."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield tmpdir
 
 
 @pytest.fixture
 def template_env():
-    """Mock simples de templates Jinja2 para evitar dependência de arquivos reais."""
+    """Simple mock Jinja2 environment with basic templates."""
     return Environment(loader=DictLoader({
         "report_template.html": "<html>Planet: {{ planet_data.pl_name }} "
                                 "- Scores: {{ scores }} "
@@ -31,10 +31,10 @@ def template_env():
 
 def test_ensure_dir_creates_and_skips(tmp_path, caplog):
     new_dir = tmp_path / "newfolder"
-    # Diretório não existe -> deve ser criado
+    # Directory does not exist -> should create
     reports.ensure_dir(str(new_dir))
     assert new_dir.exists()
-    # Diretório já existe -> não deve recriar nem logar erro
+    # Diretory exists -> should not recreate or log
     caplog.clear()
     reports.ensure_dir(str(new_dir))
     assert "Created directory" not in caplog.text
@@ -45,13 +45,13 @@ def test_ensure_dir_creates_and_skips(tmp_path, caplog):
 # ---------------------------
 
 @pytest.mark.parametrize("value,expected", [
-    (None, "#808080"),          # None -> cinza
-    ("abc", "#808080"),         # inválido -> cinza
-    (90, "#28a745"),            # >= 80 -> verde
-    (70, "#90ee90"),            # >= 60 -> verde claro
-    (50, "#ffc107"),            # >= 40 -> âmbar
-    (30, "#fd7e14"),            # >= 20 -> laranja
-    (10, "#dc3545"),            # < 20 -> vermelho
+    (None, "#808080"),          # None -> gray
+    ("abc", "#808080"),         # inválido -> gray
+    (90, "#28a745"),            # >= 80 -> green
+    (70, "#90ee90"),            # >= 60 -> light green
+    (50, "#ffc107"),            # >= 40 -> amber
+    (30, "#fd7e14"),            # >= 20 -> orange
+    (10, "#dc3545"),            # < 20 -> red
 ])
 def test_get_color_for_percentage_cases(value, expected):
     assert reports.get_color_for_percentage(value) == expected
@@ -324,24 +324,23 @@ def test_plot_scores_comparison_bar_labels(tmp_output_dir, caplog):
     scores = {"ESI": (85.0, "#00FF00")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result.endswith("_scores.png")
-    # garante que passou pelo loop de barras
+    # ensure the file was created
     assert os.path.exists(os.path.join(tmp_output_dir, result))
 
 def test_plot_scores_comparison_loop_labels(tmp_output_dir, caplog):
     scores = {"ESI": (85.0, "#00FF00")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result.endswith("_scores.png")
-    # Deve ter chamado ax.text() → registrado no caplog? (se logs internos forem usados)
-    # ou, pelo menos, o arquivo foi gerado
+    # Should call ax.text at least once
     assert os.path.exists(os.path.join(tmp_output_dir, result))
 
 def test_plot_scores_comparison_non_numeric_value(tmp_output_dir, caplog):
     caplog.set_level("WARNING")
     scores = {"ESI": ("not-a-float", "#00FF00")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "weirdplanet")
-    # Deve retornar None pois score inválido não gera gráfico
+    # Should return None on error
     assert result is None
-    # A mensagem correta que o código gera
+    # Correct message should be logged
     assert "No valid numeric scores to plot" in caplog.text
 
 def test_plot_scores_comparison_labels_called(tmp_output_dir, monkeypatch):
@@ -356,7 +355,7 @@ def test_plot_scores_comparison_labels_called(tmp_output_dir, monkeypatch):
     scores = {"ESI": (50.0, "#00FF00")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "labelplanet")
     assert result.endswith("_scores.png")
-    assert "text" in called  # confirma que a label foi escrita
+    assert "text" in called  # confirms that ax.text and labels were called
 
 def test_plot_habitable_zone_orbsmax_invalid(tmp_output_dir, caplog):
     caplog.set_level("WARNING")
@@ -370,7 +369,7 @@ def test_plot_scores_comparison_with_label_loop(tmp_output_dir):
     scores = {"ESI": (42.0, "#123456")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result.endswith("_scores.png")
-    # garante que o arquivo foi criado
+    # ensure the file was created
     assert os.path.exists(os.path.join(tmp_output_dir, result))
 
 # ---------------------------
@@ -501,7 +500,7 @@ def test_generate_planet_report_exception(tmp_output_dir):
     planet = {"pl_name": "Kepler-22 b"}
     scores = {}
     sephi_scores = {}
-    bad_env = Environment(loader=DictLoader({}))  # sem o template
+    bad_env = Environment(loader=DictLoader({}))  # without the required template
     result = reports.generate_planet_report_html(
         planet, scores, sephi_scores, {}, bad_env, tmp_output_dir, "kepler22b"
     )
@@ -509,31 +508,31 @@ def test_generate_planet_report_exception(tmp_output_dir):
 
 def test_generate_planet_report_with_transformed_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
-    scores = {"ESI": (85.0, "#00FF00")}  # válido
+    scores = {"ESI": (85.0, "#00FF00")}  # valid
     path = reports.generate_planet_report_html(
         planet, scores, {}, {}, template_env, tmp_output_dir, "kepler22b"
     )
     assert os.path.exists(path)
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    # deve aparecer o valor convertido em lista
+    # Should appear the value converted to list
     assert "85.0" in content or "ESI" in content
 
 def test_generate_planet_report_with_transformed_sephi_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
-    sephi_scores = {"SEPHI": (70.0, "#FF0000")}  # válido
+    sephi_scores = {"SEPHI": (70.0, "#FF0000")}  # valid
     path = reports.generate_planet_report_html(
         planet, {}, sephi_scores, {}, template_env, tmp_output_dir, "kepler22b"
     )
     assert os.path.exists(path)
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    # deve aparecer SEPHI com valor
+    # should bring SEPHI with color
     assert "70.0" in content or "SEPHI" in content
 
 def test_generate_planet_report_html_with_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
-    scores = {"ESI": (85.0, "#00FF00")}  # válido
+    scores = {"ESI": (85.0, "#00FF00")}  # valid
     path = reports.generate_planet_report_html(
         planet, scores, {}, {}, template_env, tmp_output_dir, "kepler22b"
     )

@@ -48,7 +48,7 @@ def normalize_name(name):
     """
     if not name or not isinstance(name, str):
         return ""
-    # Remover espaços extras, normalizar hífens e converter para minúsculas
+    # Remove leading/trailing spaces, replace en-dashes with hyphens, remove other spaces
     name = name.strip().replace("–", "-").replace(" ", "")
     return ''.join(c for c in name.lower() if c.isalnum()
     )

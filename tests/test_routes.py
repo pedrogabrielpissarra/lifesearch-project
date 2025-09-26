@@ -1,5 +1,5 @@
 import pytest
-from app import create_app  # Flask app vem de app/__init__.py
+from app import create_app  # Flask app comes from app/__init__.py
 
 
 @pytest.fixture
@@ -16,25 +16,25 @@ def client():
 
 class TestRoutes:
     def test_index_get(self, client):
-        """GET em /index deve retornar 200 e conter LifeSearch Web"""
+        """GET in /index should return 200 and contain 'LifeSearch Web'"""
         response = client.get("/index")
         assert response.status_code == 200
         assert b"LifeSearch Web" in response.data
 
     def test_index_post_invalid(self, client):
-        """POST em /index sem planetas deve retornar 200 e mensagem de erro"""
+        """POST in /index without planet names should return 200 and show error message"""
         response = client.post("/index", data={"planet_names": ""})
         assert response.status_code == 200
         assert b"Please enter at least one planet name." in response.data
 
     def test_clear_session(self, client):
-        """POST em /api/clear-session deve limpar a sessão"""
+        """POST in /api/clear-session should clear part of the session"""
         response = client.post("/api/clear-session")
         assert response.status_code == 200
         assert response.json["status"] == "partial session cleared"
 
     def test_debug_session(self, client):
-        """GET em /api/debug-session deve retornar os dados da sessão"""
+        """GET in /api/debug-session should return session details"""
         response = client.get("/api/debug-session")
         assert response.status_code == 200
         assert "planet_names_list" in response.json

@@ -286,7 +286,7 @@ def calculate_esi_score(planet_data, weights):
     }
     esi_components = []
     num_params = 0
-    MAX_WEIGHT = 1.0  # Constante em maiúsculo
+    MAX_WEIGHT = 1.0  # Denfine max weight to normalize
 
     for param_key, weight_val in esi_factors_map.items():
         planet_val = planet_data.get(param_key)
@@ -297,7 +297,7 @@ def calculate_esi_score(planet_data, weights):
                 planet_val_fl = float(planet_val)
                 earth_val_fl = float(earth_val)
                 
-                # Calcula a similaridade
+                # Calculate similarity component
                 if (planet_val_fl + earth_val_fl) == 0:
                     similarity_component = 0.0
                 else:
@@ -305,7 +305,7 @@ def calculate_esi_score(planet_data, weights):
                 if similarity_component < 0:
                     similarity_component = 0.0
 
-                # Multiplicação direta pelo peso (como um botão de volume)
+                # Apply weight and normalize, direct multiplication by weight   
                 scaled_component = similarity_component * (weight_val / MAX_WEIGHT)  # Aqui usamos MAX_WEIGHT
                 
                 esi_components.append(scaled_component)
@@ -318,7 +318,7 @@ def calculate_esi_score(planet_data, weights):
         logger.warning("No valid ESI components found.")
         return 0.0, get_color_for_percentage(0.0)
 
-    # Calcula a média normalizada pelo número total de parâmetros
+    # Calculate final ESI as the average of components
     final_esi = (sum(esi_components) / num_params) * 100
     final_esi = max(0.0, min(final_esi, 100.0))
     
@@ -389,7 +389,7 @@ def calculate_phi_score(planet_data, phi_weights):
         "Stable Orbit": 0.0
     }
 
-    # Avaliação automática dos fatores (mantém o código existente)
+    # Assess factors based on available data
     if "Terran" in planet_data.get("classification", "") or "Superterran" in planet_data.get("classification", ""):
         factors_present_scores["Solid Surface"] = 0.8
         logger.debug("Solid Surface detected: score 0.8")
@@ -442,7 +442,7 @@ def calculate_phi_score(planet_data, phi_weights):
         logger.warning("Total PHI weights sum to zero. Cannot calculate PHI.")
         return 0.0, get_color_for_percentage(0.0)
 
-    # Calcula a média ponderada
+    # Calculate final PHI score as weighted average
     final_phi = (total_weighted_score / total_weight_sum) * 100
     final_phi = max(0.0, min(final_phi, 100.0))
 

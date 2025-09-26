@@ -106,11 +106,11 @@ class TestData(unittest.TestCase):
         slug = "genericerror"
         cache_file = os.path.join(self.temp_dir.name, f"{slug}.json")
 
-        # Cria o arquivo real primeiro
+        # Create a valid cache file first
         with open(cache_file, "w") as f:
             f.write("{}")
 
-        # Agora sim força erro no open dentro do read_from_cache
+        # Now mock open to raise an exception
         with patch("builtins.open", side_effect=OSError("disk error")):
             with self.assertLogs("lifesearch.data", level="ERROR") as cm:
                 result = data.read_from_cache(slug)
@@ -176,7 +176,7 @@ class TestData(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             target = os.path.join(tmpdir, "cache_test")
-            # aponta o CACHE_DIR para um subdiretório temporário
+            # point data.CACHE_DIR to a non-existent directory
             data.CACHE_DIR = target
             self.assertFalse(os.path.exists(target))
             data.ensure_cache_ready()
@@ -186,9 +186,9 @@ class TestData(unittest.TestCase):
         """It should log an error when trying to cache unsupported data type"""
         from lifesearch.data import write_to_cache
         slug = "invalidtype"
-        # Passa tipo inválido (list)
+        # Invalid type (list instead of dict or Series)
         result = write_to_cache(slug, [1, 2, 3])
-        # Deve retornar None e não criar arquivo
+        # None should be returned and no file created
         cache_file = os.path.join(self.temp_dir.name, f"{slug}.json")
         self.assertFalse(os.path.exists(cache_file))
         self.assertIsNone(result)
@@ -198,16 +198,16 @@ class TestData(unittest.TestCase):
         from lifesearch import data
         slug = "errorplanet"
 
-        # Forçar erro: mock do open para lançar exceção
+        # Force an error by mocking open to raise an exception
         with patch("builtins.open", side_effect=OSError("disk full")):
             result = data.write_to_cache(slug, {"mass": 1.0})
-            self.assertIsNone(result)  # função deve capturar exceção
+            self.assertIsNone(result)  # function should return None on error
 
     def test_write_to_cache_invalid_type_logs(self):
         """It should log an error when trying to cache unsupported data type"""
         from lifesearch.data import write_to_cache
         with self.assertLogs("lifesearch.data", level="ERROR") as cm:
-            result = write_to_cache("badslug", [1, 2, 3])  # tipo inválido
+            result = write_to_cache("badslug", [1, 2, 3])  # list is invalid
             self.assertIsNone(result)
         self.assertTrue(
             any("Unsupported data type for caching" in m for m in cm.output),
@@ -259,7 +259,7 @@ class TestData(unittest.TestCase):
     def test_convert_numpy_types_fallback_final_return(self):
         """It should return data unchanged if type is not handled and not dict/list"""
         from lifesearch.data import convert_numpy_types
-        value = (1, 2, 3)  # tuple não é tratado
+        value = (1, 2, 3)  # tuple is not specially handled
         result = convert_numpy_types(value)
         self.assertEqual(result, value)
 
@@ -271,9 +271,9 @@ class TestData(unittest.TestCase):
             def __str__(self):
                 raise ValueError("cannot stringify")
 
-        bad_obj = {"bad": BadStr()}  # Vai explodir no str()
+        bad_obj = {"bad": BadStr()}  # Is going to explode when str() is called
 
-        # Forçar erro externo também (mock do open)
+        # Force an error by mocking open to raise an exception
         with patch("builtins.open", side_effect=OSError("disk full")):
             result = data.write_to_cache("badslug", bad_obj)
             self.assertIsNone(result)

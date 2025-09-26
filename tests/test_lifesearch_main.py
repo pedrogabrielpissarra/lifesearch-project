@@ -7,12 +7,12 @@ class TestHelpers:
     # get_color_for_percentage
     # ---------------------------
     @pytest.mark.parametrize("value,expected", [
-        (90, "#4CAF50"),   # verde (>=80)
-        (70, "#8BC34A"),   # verde claro (>=60)
-        (45, "#FFC107"),   # amarelo (>=40)
-        (25, "#FF9800"),   # laranja (>=20)
-        (10, "#F44336"),   # vermelho (<20)
-        (None, "#757575"), # inválido = cinza
+        (90, "#4CAF50"),   # green (>=80)
+        (70, "#8BC34A"),   # light green (>=60)
+        (45, "#FFC107"),   # yellow (>=40)
+        (25, "#FF9800"),   # orange (>=20)
+        (10, "#F44336"),   # rede (<20)
+        (None, "#757575"), # invalid = grey
     ])
     def test_get_color_for_percentage(self, value, expected):
         """Should return the correct color (Material Design palette) for different percentage values"""
@@ -58,7 +58,7 @@ class TestHelpers:
         assert isinstance(times, dict)
         for v in times.values():
             assert isinstance(v, str)
-            assert v != ""  # não esperamos 'N/A', mas pelo menos string não vazia
+            assert v != ""  # not expecting empty strings
 
     # ---------------------------
     # classify_planet
@@ -81,14 +81,14 @@ class TestHelpers:
     def test_classify_planet_estimate_mass_rocky(self):
         from lifesearch.lifesearch_main import classify_planet
         result = classify_planet(float("nan"), 1.0, 300)  # NaN mass, small radius
-        # Como radius=1.0 → mass estimada ~1.0 → Terran
+        # radius=1.0 → estimate mass ~1.0 → Terran
         assert result.startswith("Terran")
         assert "Mesoplanet" in result
 
     def test_classify_planet_estimate_mass_gaseous(self):
         from lifesearch.lifesearch_main import classify_planet
         result = classify_planet(float("nan"), 2.0, 300)  # NaN mass, larger radius
-        # Como radius=2.0 → mass estimada ~4.0 → Superterran
+        # radius=2.0 → estimate mass ~4.0 → Superterran
         assert result.startswith("Superterran")
         assert "Mesoplanet" in result
 
@@ -143,7 +143,7 @@ class TestCalculationsESI:
         planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
         weights = {"Size": 1.0, "Density": 1.0, "Habitable Zone": 1.0}
         result = calculate_esi_score(planet_data, weights)
-        assert result == (0.0, "#F44336")  # 0% => vermelho (não cinza)
+        assert result == (0.0, "#F44336")  # 0% => red not grey
 
 class TestCalculationsPHI:
     # ---------------------------
@@ -198,7 +198,7 @@ class TestCalculationsPHI:
         from lifesearch.lifesearch_main import calculate_phi_score
         planet_data = {"pl_name": "Empty"}
         result = calculate_phi_score(planet_data, {})
-        assert result == (0.0, "#F44336")  # sem fatores → 0 e vermelho
+        assert result == (0.0, "#F44336")  # no factors → 0% → red
 
     def test_calculate_phi_score_with_factors(self):
         from lifesearch.lifesearch_main import calculate_phi_score
@@ -348,9 +348,9 @@ class TestCalculationsSEPHI:
 
     def test_calculate_sephi_sigma1mp_zero(self):
         from lifesearch.lifesearch_main import calculate_sephi
-        # pm=1.0 força mu_1_mp == mu_2_mp, logo sigma_1_mp == 0
+        # pm=1.0 force mu_1_mp == mu_2_mp, logo sigma_1_mp == 0
         result = calculate_sephi(1, 1, 365, 1, 1, 5778, 5, 5.5, "TestPlanet")
-        assert isinstance(result[0], float)  # Deve calcular sem explodir
+        assert isinstance(result[0], float)  # Should recalculate without exploding
 
 class TestDetailedScores:
     def test_size_score_terran_optimal(self):
@@ -473,7 +473,7 @@ class TestDetailedScores:
     def test_size_score_else_fallback(self):
         """Covers Size else branch (471-473)"""
         from lifesearch.lifesearch_main import calculate_detailed_habitability_scores
-        # Classification não reconhecida, mas raio informado
+        # Classification not in known categories
         planet_data = {"pl_name": "OddSized", "pl_rade": 1.2, "classification": "Exotic"}
         scores = calculate_detailed_habitability_scores(planet_data, None, {})
         assert scores["Size"][0] == 30
@@ -481,7 +481,7 @@ class TestDetailedScores:
     def test_hz_position_else_25_outside_range(self):
         """Covers HZ Position else branch (534-535)"""
         from lifesearch.lifesearch_main import calculate_detailed_habitability_scores
-        # Força uso de st_lum_log e pl_orbsmax, mas órbita fora do range
+        # Force use of st_lum when pl_orbsmax is outside typical range
         planet_data = {"pl_name": "TooFar", "pl_orbsmax": 10.0, "st_lum": 0.0}
         scores = calculate_detailed_habitability_scores(planet_data, None, {})
         assert scores["Habitable Zone Position"][0] == 25
@@ -512,7 +512,7 @@ class TestProcessPlanetData:
     def test_process_planet_data_with_unexpected_type(self):
         from lifesearch.lifesearch_main import process_planet_data
         weights_config = {"habitability": {}, "phi": {}}
-        result = process_planet_data("Weird", [1,2,3], weights_config)  # list inesperada
+        result = process_planet_data("Weird", [1,2,3], weights_config)  # unexpected list
         assert isinstance(result["planet_data_dict"], dict)
 
     def test_process_planet_data_missing_pl_name(self):
@@ -525,22 +525,22 @@ class TestProcessPlanetData:
     def test_process_planet_data_invalid_numeric_field(self):
         from lifesearch.lifesearch_main import process_planet_data
         weights_config = {"habitability": {}, "phi": {}}
-        data = {"st_age": "not_a_number"}  # cai no except ValueError
+        data = {"st_age": "not_a_number"}  # falls into except ValueError
         result = process_planet_data("BadStar", data, weights_config)
         assert result["planet_data_dict"]["st_age"] is None
 
     def test_process_planet_data_with_sy_dist_valid(self):
         from lifesearch.lifesearch_main import process_planet_data
         weights_config = {"habitability": {}, "phi": {}}
-        data = {"sy_dist": 10}  # valor válido em parsecs
+        data = {"sy_dist": 10}  # Invalid value in parsecs
         result = process_planet_data("ValidDist", data, weights_config)
-        # Deve converter para anos-luz
+        # should convert to light-years
         assert "travel_curiosities" in result["planet_data_dict"]
 
     def test_process_planet_data_with_sy_dist_invalid(self):
         from lifesearch.lifesearch_main import process_planet_data
         weights_config = {"habitability": {}, "phi": {}}
-        data = {"sy_dist": "abc"}  # valor inválido que cai no except
+        data = {"sy_dist": "abc"}  # Invalid value falls into except
         result = process_planet_data("InvalidDist", data, weights_config)
-        # Deve cair no except e continuar funcionando
+        #  Should fall into except and run without crashing
         assert "travel_curiosities" in result["planet_data_dict"]

@@ -81,7 +81,7 @@ def format_float_field(value, precision=".2f"):
     except (ValueError, TypeError):
         return str(value)  # Return as string if conversion fails
 
-# Novas funções auxiliares:
+# --- Score Description Functions ---
 def get_score_description(scores_dict, field_name, classification):
     score_info = get_score_info(scores_dict, field_name)
     score = score_info["score"]
@@ -439,18 +439,18 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
               - 'magnetic_activity_score', 'magnetic_activity_desc'
               - 'presence_of_moons_score', 'presence_of_moons_desc'
     """
-    temp_str = data.get("pl_eqt")  # Obter como string ou None
-    temp = None  # Inicializar temp numérico
+    temp_str = data.get("pl_eqt")  # Obtain temperature as string
+    temp = None  # Initialize temp as None
 
     if temp_str is not None:
         try:
-            temp = float(temp_str)  # Tentar converter para float
+            temp = float(temp_str)  # Try converting to float directly
         except (ValueError, TypeError):
             logger.warning(f"Could not convert pl_eqt '{temp_str}' to float. Attempting recalculation or using default value.")
-            temp = None  # Garantir que temp seja None se a conversão falhar
+            temp = None  # Will attempt recalculation below
 
-    if temp is None:  # Se era None inicialmente ou a conversão falhou
-        # Tentar calcular a temperatura
+    if temp is None:  # If conversion failed or value was None, try recalculating
+        # Try to recalculate temperature using stellar parameters
         st_teff_str = data.get("st_teff")
         st_rad_str = data.get("st_rad")
         pl_orbsmax_str = data.get("pl_orbsmax")
@@ -463,22 +463,22 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
             if pl_orbsmax_str is not None: pl_orbsmax_num = float(pl_orbsmax_str)
         except (ValueError, TypeError):
             logger.warning(f"Could not convert stellar parameters for temperature calculation for planet {data.get('pl_name', 'Unknown')}.")
-            # Deixar como None, o bloco seguinte tratará isso
+            # Parameters remain None if conversion fails
 
         if st_teff_num is not None and st_rad_num is not None and pl_orbsmax_num is not None and pl_orbsmax_num > 0:
             temp = st_teff_num * ((st_rad_num / (2 * pl_orbsmax_num)) ** 0.5) * ((1 - albedo) ** 0.25)
             logger.info(f"Temperatura calculada para {data.get('pl_name', 'Desconhecido')}: {temp:.2f} K")
         else:
             logger.warning(f"Unable to calculate temperature for {data.get('pl_name', 'Unknown')}, using default value of 278 K.")
-            temp = 278  # Valor padrão se o cálculo não for possível
+            temp = 278  # Default temperature if all else fails
 
-    # Garantir que temp seja um número neste ponto para as comparações
-    if temp is None: # Esta condição não deve ser atingida se o padrão for definido
+    # Assuming temp is now a float
+    if temp is None: # Final check, should not happen
         logger.error(f"Temperature unexpectedly None for {data.get('pl_name', 'Unknown')} after all checks. Using 278 K.")
         temp = 278
 
-    # Scores numéricos
-    # Agora 'temp' é um float e a comparação funcionará
+    # Atmosphere & Water (Scores)
+    # Now temp is guaranteed to be a float
     if 273 < temp <= 373:
         atmosphere_score = 90
         water_score = 90
@@ -489,7 +489,7 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
         atmosphere_score = 20
         water_score = 20
 
-    # Descrições
+    # Atmosphere & Water (Descriptions)
     atmosphere_desc = "Likely" if 273 < temp <= 373 else "Possible" if 200 <= temp <= 273 or 373 < temp <= 450 else "Unlikely"
     water_desc = atmosphere_desc
 
@@ -507,19 +507,19 @@ def enrich_atmosphere_water_magnetic_moons(data, classification):
     magnetic_score = 10.0 # Default
     star_type_condition_met = False
 
-    if isinstance(st_spectype, str) and st_spectype.strip(): # Verifica se é uma string não vazia
+    if isinstance(st_spectype, str) and st_spectype.strip(): # Check if st_spectype is a non-empty string
         if st_spectype.startswith("G") or st_spectype.startswith("K"):
          star_type_condition_met = True
 
     if mass is not None:
         if mass > 1 and ("Terran" in classification or "Superterran" in classification):
             magnetic_score = 80
-            if st_spectype and st_spectype.startswith("K"): # Checar se st_spectype não é None
+            if st_spectype and st_spectype.startswith("K"): # Check if st_spectype is not None
                 magnetic_score = 90
         elif mass < 0.5:
             magnetic_score = 40
         # else: magnetic_score remains 60 or is set by st_spectype below
-    elif st_spectype: # Checar se st_spectype não é None
+    elif st_spectype: # Check if st_spectype is not None
         if st_spectype.startswith("M"):
             magnetic_score = 40
         elif st_spectype.startswith("G") or st_spectype.startswith("K"):
@@ -571,7 +571,7 @@ def get_score_info(scores_dict, field_name):
         logger.warning(f"scores_dict is not a dict for field '{field_name}'. Using default score info.")
         return {"score": default_numeric_score, "color": default_color, "text": default_text}
     
-    # Verificar se o campo existe como objeto
+    # Check if the field exists as a dict
     if isinstance(scores_dict.get(field_name), dict):
         score_dict = scores_dict.get(field_name)
         return {
@@ -580,7 +580,7 @@ def get_score_info(scores_dict, field_name):
             "text": score_dict.get("text", default_text)
         }
     
-    # Verificar se o campo existe como tupla
+    # Check if the field exists as a tuple
     score_tuple = scores_dict.get(field_name)
     
     if not isinstance(score_tuple, tuple) or len(score_tuple) < 1 or pd.isna(score_tuple[0]):
@@ -615,7 +615,7 @@ def get_score_info(scores_dict, field_name):
 def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
     logger.info(f"Starting _prepare_data_for_aggregated_reports with {len(all_planets_report_data)} planets")
     
-    # Salvar os dados de entrada para depuração
+    # Save input data for debugging
     debug_input_path = os.path.join(output_dir, "debug_input_all_planets_report_data_AGGREGATED_INPUT.json")
     try:
         with open(debug_input_path, "w", encoding="utf-8") as f_debug:
@@ -693,63 +693,62 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
         
         logger.info(f"Processing {planet_name_for_log} for aggregated reports")
         
-        # Logar todas as chaves disponíveis em planet_raw_TAP_data para depuração
+        # Log all available keys in planet_raw_TAP_data
         logger.debug(f"Available keys in planet_raw_TAP_data for {planet_name_for_log}: {list(planet_raw_TAP_data.keys())}")
         
-        # Obter scores e dados
+        # Get scores and other data
         scores_processed = p_data.get("scores_for_report", {})
         sephi_processed = p_data.get("sephi_scores_for_report", {})
         hz_data_tuple_raw = p_data.get("hz_data_tuple")
 
-        # Obter classificação
+        # Get classification
         classification_text = safe_get(planet_raw_TAP_data, "classification", "Unknown")
         if "classification_final_display" in planet_raw_TAP_data:
             classification_text = safe_get(planet_raw_TAP_data, "classification_final_display", classification_text)
 
         enriched_details = enrich_atmosphere_water_magnetic_moons(planet_raw_TAP_data, classification_text)
 
-        # --- NOVO CÁLCULO PARA STELLAR ACTIVITY SCORE ---
+        #--- NEW CALCULATION FOR STELLAR ACTIVITY ---
         st_age_str = planet_raw_TAP_data.get("st_age")
-        # Default para "Low" (atividade real alta, score de favorabilidade baixo = 30%)
-        # se st_age não for fornecido, for inválido, ou <= 2 Gyr.
+        # Default to "Low" activity (30%)
+        # If st_age > 5 Gyr -> High activity (90%)
         stellar_activity_score_val = 30.0 
         stellar_activity_desc_for_log = "Low (default or <= 2 Gyr)"
 
         if st_age_str is not None:
             try:
                 st_age_float = float(st_age_str)
-                if st_age_float > 5: # Estrela mais velha -> atividade real BAIXA -> BOM -> Score Alto
+                if st_age_float > 5: # Old star -> real LOW activity -> EXCELENT -> High Score
                     stellar_activity_score_val = 90.0
                     stellar_activity_desc_for_log = "High (age > 5 Gyr)"
-                elif st_age_float > 2: # Estrela meia-idade -> atividade real MODERADA -> OK -> Score Médio
+                elif st_age_float > 2: # Intermediate age star -> MODERATE activity -> GOOD -> Medium Score
                     stellar_activity_score_val = 60.0
                     stellar_activity_desc_for_log = "Moderate (age 2-5 Gyr)"
-                # else: st_age_float <= 2 (Estrela jovem -> atividade real ALTA -> RUIM -> Score Baixo)
-                # já coberto pelo default de 30.0
+                # else: st_age_float <= 2 (Young star -> HIGH activity -> POOR -> Low Score)
+                # stellar_activity_score_val already is 30.0
             except (ValueError, TypeError):
                 logger.warning(f"Planet {planet_name_for_log}: Could not convert st_age '{st_age_str}' to float. Stellar Activity Score set to 30% (default for Low activity / unknown).")
-                # stellar_activity_score_val já é 30.0 por default
+                # stellar_activity_score_val already is 30.0
         
         logger.debug(f"Planet {planet_name_for_log}: st_age='{st_age_str}', Stellar Activity Description (from logic): '{stellar_activity_desc_for_log}', Score: {stellar_activity_score_val}%")
-        # --- FIM DO NOVO CÁLCULO ---
+        #--- END NEW CALCULATION FOR STELLAR ACTIVITY ---
 
-        # Preparar scores para o template
+        # Prepare scores for template
         scores_for_template = {
             "ESI": get_score_info(scores_processed, "ESI"),
             "SPH": get_score_info(scores_processed, "SPH"),
             "PHI": get_score_info(scores_processed, "PHI"),
             "Host_Star_Type": get_score_info(scores_processed, "Host Star Type"),
             "System_Age": get_score_info(scores_processed, "System Age"),
-            # >>>>> MODIFICAÇÃO PARA STELLAR ACTIVITY <<<<<
+            # >>>>> Should use stellar_activity_score_val and stellar_activity_desc_for_log <<<<<
             "Stellar_Activity": {
-                # Supondo que 'stellar_activity_score' deve vir de planet_raw_TAP_data
-                # Se precisar de uma descrição mais elaborada, você precisará de uma fonte para ela.
+                # Supose that the score is already between 0 and 100
                 "score": stellar_activity_score_val,
                 "color": get_color_for_percentage(stellar_activity_score_val),
-                "text": stellar_activity_desc_for_log, # Tenta pegar uma descrição se houver
+                "text": stellar_activity_desc_for_log, # Trying to use the description from the logic above
             },   
             "Orbital_Eccentricity": get_score_info(scores_processed, "Orbital Eccentricity"),
-            # >>>>> USAR enriched_details AQUI <<<<<
+            # >>>>> USE enriched_details <<<<<
             "Atmosphere_Potential": {
                 "score": np.clip(float(enriched_details.get("atmosphere_potential_score", 0.0)), 0, 100),
                 "color": get_color_for_percentage(float(enriched_details.get("atmosphere_potential_score", 0.0))),
@@ -781,7 +780,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
             "Star_Metallicity": get_score_info(scores_processed, "Star Metallicity")
         }
 
-        # Preparar scores SEPHI
+        # Prepare scores for SEPHI
         sephi_scores_for_template = {
             "SEPHI": {"score": 0.0, "color": "#808080", "text": "N/A"},
             "SEPHI_L1": {"score": 0.0, "color": "#808080", "text": "N/A"},
@@ -811,7 +810,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
                     except (ValueError, TypeError) as e:
                         logger.warning(f"Error processing SEPHI score for {key} in planet {planet_name_for_log}: {e}")
 
-        # Calcular Habitability Score
+        # Calculate Habitability Score
         components = [
             scores_for_template["Temperature"]["score"],
             scores_for_template["Bio Potential"]["score"],
@@ -845,7 +844,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
             "text": "Overall Habitability Score"
         }
 
-        # Calcular informações de viagem
+        # Calculate travel curiosities
         sy_dist_pc = planet_raw_TAP_data.get("sy_dist")
         distance_ly_str = "N/A"
         travel_details = {
@@ -865,12 +864,12 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
             except (ValueError, TypeError):
                 logger.warning(f"Could not calculate travel times for {planet_name_for_log} due to distance conversion error for sy_dist: {sy_dist_pc}")
 
-        # Obter descrição da zona habitável
+        # Obtain HZ description
         hz_description = "N/A"
         if hz_data_tuple_raw and len(hz_data_tuple_raw) > 4 and pd.notna(hz_data_tuple_raw[4]):
             hz_description = str(hz_data_tuple_raw[4])
 
-        # Calcular gravidade superficial
+        # Calculate surface gravity if not available
         surface_gravity_value_str = "N/A"
         raw_pl_grav = planet_raw_TAP_data.get("pl_grav")
         if pd.notna(raw_pl_grav):
@@ -896,7 +895,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
                 except (ValueError, TypeError) as e_calc:
                     logger.warning(f"Could not convert mass ('{raw_pl_masse}') or radius ('{raw_pl_rade}') to float for surface gravity calculation for {planet_name_for_log}. Error: {e_calc}")
 
-        # Adicionar dados de descoberta
+        # Add discovery data
         discovery_method = find_key_insensitive(planet_raw_TAP_data, "discoverymethod")
         if discovery_method is None or pd.isna(discovery_method) or str(discovery_method).strip().lower() == "n/a":
             discovery_method = find_key_insensitive(planet_raw_TAP_data, "disc_method")
@@ -928,7 +927,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
         discovery_telescope = discovery_telescope if discovery_telescope is not None and not pd.isna(discovery_telescope) and str(discovery_telescope).strip().lower() != "n/a" else "N/A"
         logger.debug(f"Planet {planet_name_for_log}: Discovery Telescope - NASA (disc_telescope): {planet_raw_TAP_data.get('disc_telescope')}, Selected: {discovery_telescope}")
 
-        # Adicionar dados de localização
+        # Add coordinates data
         x_pixel_ra = find_key_insensitive(planet_raw_TAP_data, "S_RA")
         if x_pixel_ra is None or pd.isna(x_pixel_ra) or str(x_pixel_ra).strip().lower() == "n/a":
             x_pixel_ra = find_key_insensitive(planet_raw_TAP_data, "ra")
@@ -949,7 +948,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
             declination = find_key_insensitive(planet_raw_TAP_data, "decstr")
         declination = declination if declination is not None and not pd.isna(declination) and str(declination).strip().lower() != "n/a" else "N/A"
 
-        # Preparar star_info com constelação
+        # Prepare star info for template
         star_info = {
             "temperature_k": format_float_field(planet_raw_TAP_data.get("st_teff"), ".0f"),
             "radius_solar": format_float_field(planet_raw_TAP_data.get("st_rad")),
@@ -968,7 +967,7 @@ def _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir):
         else:
             star_info["distance_ly"] = "N/A"
 
-        # Preparar dados para o template
+        # Prepare final data for template
         data_for_template = {
             "planet_name": planet_raw_TAP_data.get("pl_name", "N/A"),
             "classification": classification_text,
@@ -1039,7 +1038,7 @@ def generate_summary_report_html(all_planets_report_data, template_env, output_d
     """
     logger = logging.getLogger(__name__)
     
-    # Função auxiliar para garantir que o diretório exista
+    # Function to ensure the output directory exists
     def ensure_dir(directory):
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -1053,12 +1052,12 @@ def generate_summary_report_html(all_planets_report_data, template_env, output_d
     try:
         template = template_env.get_template("summary_template.html")
         
-        # Usar a versão corrigida da função de preparação de dados
+        # Use the corrected version of the data preparation function
         processed_planets_data = _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir)
         
         if not processed_planets_data:
             logger.warning("No processed data available for summary report. Creating empty report.")
-            # Criar um relatório vazio em vez de retornar None
+            # Create an empty report instead of returning None
             processed_planets_data = []
         
         context = {"all_planets_data": processed_planets_data, "datetime": datetime}
@@ -1075,7 +1074,7 @@ def generate_summary_report_html(all_planets_report_data, template_env, output_d
         import traceback
         traceback.print_exc()
         
-        # Criar um relatório de erro em vez de retornar None
+        # Create an error report instead of returning None
         try:
             error_html = f"""
             <!DOCTYPE html>
@@ -1127,7 +1126,7 @@ def generate_combined_report_html(all_planets_report_data, template_env, output_
     """
     logger = logging.getLogger(__name__)
     
-    # Função auxiliar para garantir que o diretório exista
+    # Function to ensure the output directory exists
     def ensure_dir(directory):
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -1141,12 +1140,12 @@ def generate_combined_report_html(all_planets_report_data, template_env, output_
     try:
         template = template_env.get_template("combined_template.html")
         
-        # Usar a versão corrigida da função de preparação de dados
+        # Use the corrected version of the data preparation function
         processed_planets_data = _prepare_data_for_aggregated_reports(all_planets_report_data, output_dir)
         
         if not processed_planets_data:
             logger.warning("No processed data available for combined report. Creating empty report.")
-            # Criar um relatório vazio em vez de retornar None
+            # Create an empty report instead of returning None
             processed_planets_data = []
         
         context = {"all_planets_data": processed_planets_data, "datetime": datetime}
@@ -1163,7 +1162,7 @@ def generate_combined_report_html(all_planets_report_data, template_env, output_
         import traceback
         traceback.print_exc()
         
-        # Criar um relatório de erro em vez de retornar None
+        # Create an error report instead of returning None
         try:
             error_html = f"""
             <!DOCTYPE html>
