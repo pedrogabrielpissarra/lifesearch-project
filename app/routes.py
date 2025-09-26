@@ -642,7 +642,7 @@ def results():
 
     if not planet_names_list:
         flash("No planets to process. Please perform a new search.", "warning")
-        return redirect(url_for("index"))
+        return redirect(url_for("routes.index"))
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_results_dir_name = f"lifesearch_results_{timestamp}"
