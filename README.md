@@ -1,6 +1,7 @@
 # LifeSearch Web Application
 
-This is a Flask web application that allows users to search for information about exoplanets, configure habitability weights, and generate detailed reports with graphical visualizations.
+LifeSearch Web is a Flask-based application for analyzing exoplanet habitability.  
+It integrates NASA Exoplanet Archive data with the HWC and HZGallery catalogs, and generates detailed reports with visualizations.
 
 ## Project Structure
 
@@ -151,15 +152,45 @@ To build and run the application using Docker:
 
 ## How to Use
 
-1.  Access the home page.
-2.  (Optional) Go to the "Configure Weights" page to adjust habitability factor weights. Default settings will be used otherwise.
-3.  On the home page, enter the names of the planets you want to analyze.
-    *   Example: `Kepler-452 b, TRAPPIST-1 e`
-4.  (Optional) Use the "Override Parameters" field to provide custom values.
-    *   Format: `PlanetName: param1=value1; param2=value2` (one line per planet)
-    *   Example: `Kepler-452 b: pl_rade=2.4; st_age=6.0`
-5.  Click "Search Planets".
-6.  The results page will show links to the generated reports. Click the links to view the reports.
+
+## 🌐 Web Interface Instructions
+
+### 1. Access the Home Page
+Open the application in your browser. You’ll see a search form for planet names.
+
+### 2. Enter Planet Names
+Type the names of the exoplanets you want to analyze.  
+- You can separate them with commas **or** enter one per line.  
+- Example:  
+Kepler-452 b, TRAPPIST-1 e
+
+
+### 3. (Optional) Configure Habitability Weights
+Click **Configure Weights** to adjust the importance of various habitability metrics:  
+- ESI (Earth Similarity Index)  
+- PHI (Planetary Habitability Index)  
+- SPH (Standard Primary Habitability)  
+- SEPHI (Standard Exoplanet Habitability Index)  
+
+Default values:  
+- General habitability factors → `1.0`  
+- PHI factors → `0.25`
+
+### 4. (Optional) Override Planetary Parameters Orbital, Physical and Star Factors ESI and PHI values
+You can input custom values for planets using the **Parameters** field.  
+
+### 5. Click **Search Planets**
+The system will:
+- Fetch data from the NASA Exoplanet Archive (with local caching in `lifesearch/cache`)  
+- Merge it with the HWC (`hwc.csv`) and HZGallery (`table-hzgallery.csv`) catalogs  
+- Apply your weight configuration  
+- Generate detailed reports with charts and metrics  
+
+### 6. View Results
+You’ll be redirected to a results page with links to:
+- **Individual Planet Reports** → One per planet  
+- **Summary Report** → Aggregated metrics in a single view  
+- **Combined Report** → Direct comparison of planets across multiple factors  
 
 ## Notes
 
