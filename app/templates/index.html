@@ -19,13 +19,13 @@
             {% endif %}
         </div>
         
-        <!-- Botão de busca inicial -->
+        <!-- Search button -->
         <div class="d-grid gap-2 mb-4">
             <button type="button" id="search-planets-btn" class="btn btn-primary btn-lg">Search Planets</button>
         </div>
     </form>
     
-    <!-- Loading indicator (inicialmente oculto) -->
+    <!-- Loading indicator (initially hidden) -->
     <div id="loading-indicator" class="text-center my-4" style="display: none;">
         <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
@@ -33,16 +33,16 @@
         <p class="mt-2">Searching for planet data...</p>
     </div>
     
-    <!-- Área para exibição de parâmetros editáveis (inicialmente oculta) -->
+    <!-- Container for planet parameters (initially hidden) -->
     <div id="planets-parameters-container" style="display: none;">
         <h3 class="mb-3">Edit Planet Parameters</h3>
         <p class="text-muted">Modify any parameter to override the default values. Changes will affect the generated reports.</p>
         
         <div id="planets-cards-container">
-            <!-- Cards de planetas serão inseridos aqui via JavaScript -->
+            <!-- Planet cards will be dynamically inserted here via JavaScript-->
         </div>
         
-        <!-- Formulário oculto para enviar os dados -->
+        <!-- Hidden form to submit planet names and parameter overrides -->
         <form id="parameters-form" method="POST" action="{{ url_for('routes.index') }}">
             {{ form.hidden_tag() }}
         <input type="hidden" id="planet-names-hidden" name="planet_names">
@@ -59,12 +59,12 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- Script Tagify (mantido do original) -->
+<!-- Tagify -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var input = document.getElementById('planet-names-input');
 
-    // Função debounce para evitar múltiplas chamadas AJAX enquanto o usuário digita
+    // Function debounce to avoid multiple AJAX calls while user is typing
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -136,8 +136,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Adicionar ao evento de clique do botão search-planets-btn
-// Adicionar ao evento de clique do botão search-planets-btn
+// Add event listener for the search button
 document.getElementById('search-planets-btn').addEventListener('click', async function() {
     const planetNames = tagify.value.map(tag => tag.value);
     
@@ -146,15 +145,15 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
         return;
     }
     
-    // Mostrar loading
+    // Show loading
     document.getElementById('loading-indicator').style.display = 'block';
     document.getElementById('planets-parameters-container').style.display = 'none';
 
     try {
-        // Obter o token CSRF do formulário principal
+        // Obtain CSRF token from the form
         const csrfToken = document.querySelector('#planet-search-form input[name="csrf_token"]').value;
 
-        // Evitar limpar planet_weights e use_individual_weights, se existirem
+        // Avoid clearing session if data is already present
         const sessionResponse = await fetch('/api/debug-session', {
             method: 'GET',
             headers: {
@@ -165,7 +164,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
         const sessionData = await sessionResponse.json();
         console.log('Session state before clear:', sessionData);
         if (!sessionData.planet_weights && !sessionData.use_individual_weights) {
-            // Limpar sessão apenas se planet_weights e use_individual_weights não existirem
+            // Clean session if data isn't present
             const clearResponse = await fetch('/api/clear-session', {
                 method: 'POST',
                 headers: {
@@ -179,7 +178,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
             console.log('Session cleared');
         }
 
-        // Salvar os planetas na sessão
+        // Save planet names to session
         const saveResponse = await fetch('/api/save-planets-to-session', {
             method: 'POST',
             headers: {
@@ -194,7 +193,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
         }
         console.log('Planets saved to session:', planetNames);
 
-        // Fazer requisição AJAX para obter dados dos planetas
+        // AJAX request to fetch planet parameters
         const response = await fetch('/api/planets/parameters', {
             method: 'POST',
             headers: {
@@ -221,13 +220,13 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
             throw new Error('Invalid response format: missing or malformed planets data');
         }
 
-        // Preencher os cards de planetas
+        // Fill planet cards
         renderPlanetCards(data.planets);
 
-        // Preencher campo oculto com nomes dos planetas
+        // Fill hidden input with planet names
         document.getElementById('planet-names-hidden').value = planetNames.join(',');
 
-        // Esconder loading e mostrar área de parâmetros com um pequeno atraso para estabilizar o DOM
+        // Hide loading and DOM elements after a short delay for better UX
         setTimeout(() => {
             document.getElementById('loading-indicator').style.display = 'none';
             document.getElementById('planets-parameters-container').style.display = 'block';
@@ -239,7 +238,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
     }
 });
     
-    // Função para renderizar os cards de planetas
+    // Function to render planet cards
     function renderPlanetCards(planets) {
         const container = document.getElementById('planets-cards-container');
         container.innerHTML = '';
@@ -249,11 +248,11 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
             container.appendChild(card);
         });
         
-        // Adicionar event listeners para os campos editáveis
+        // Add event listeners to parameter fields
         setupParameterFields();
     }
     
-    // Função para criar um card de planeta
+    // Function to create a card for a planet
     function createPlanetCard(planet, index) {
         const card = document.createElement('div');
         card.className = 'card mb-4 planet-card';
@@ -266,7 +265,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
         const cardBody = document.createElement('div');
         cardBody.className = 'card-body';
         
-        // Criar abas para categorias de parâmetros
+        // Create tabs for categories
         const tabsHtml = `
             <ul class="nav nav-tabs" role="tablist">
                 <li class="nav-item" role="presentation">
@@ -301,11 +300,11 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
         return card;
     }
     
-    // Função para criar campos de parâmetros por categoria
+    // Function to create parameter fields for a given category
     function createParameterFields(planet, category) {
         let fields = '';
         
-        // Definir parâmetros por categoria
+        // Define parameters for each category
         const parameters = {
             orbital: [
                 { key: 'pl_orbper', label: 'Orbital Period (days)', type: 'number', step: '0.01' },
@@ -393,7 +392,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
         });
     }
     
-    // Atualizar o campo oculto de parameter_overrides
+    // Update hidden input with parameter overrides
     function updateParameterOverrides() {
         const overrides = {};
         
@@ -409,7 +408,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
             overrides[planetName][paramKey] = paramValue;
         });
         
-        // Converter para o formato esperado pelo backend
+        // Convert to expected string format
         let overridesText = '';
         for (const planet in overrides) {
             let paramPairs = [];
@@ -425,12 +424,11 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
     }
 });
 
-    // Recarregar planetas da sessão, se existirem
-// Recarregar planetas da sessão, se existirem, apenas se não for uma restauração
+// Reload planets if available in session (e.g., after validation error)
 (async function autoReloadPlanetsFromSession() {
     if (window.location.search.includes('restore=1')) {
         console.log('Skipping auto-reload due to restore=1');
-        return; // Evitar auto-reload em restauração
+        return; // Avoid auto-reload if restore=1 is present
     }
 
     try {
@@ -440,7 +438,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
         const planetNames = planetTags.split(',').map(p => p.trim()).filter(Boolean);
         if (planetNames.length === 0) return;
 
-        // Mostrar loading
+        // Show loading
         document.getElementById('loading-indicator').style.display = 'block';
         document.getElementById('planets-parameters-container').style.display = 'none';
 
@@ -466,7 +464,7 @@ document.getElementById('search-planets-btn').addEventListener('click', async fu
 
         document.getElementById('planet-names-hidden').value = planetNames.join(',');
     } catch (error) {
-        console.error('Erro ao recarregar planetas da sessão:', error);
+        console.error('Error auto-reloading planets from session:', error); 
         document.getElementById('loading-indicator').style.display = 'none';
     }
 })();
