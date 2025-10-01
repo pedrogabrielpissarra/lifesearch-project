@@ -1,18 +1,18 @@
 import pandas as pd
-import numpy as np
 import logging
 import math
 
 logger = logging.getLogger(__name__)
 
+
 # --- Helper Functions ---
 def get_color_for_percentage(value, high_is_good=True):
     """Determines a hex color code based on a percentage value.
-    
+
     Args:
         value (float or None): The percentage value (0-100).
         high_is_good (bool): True if higher values are better, False if lower values are better.
-    
+
     Returns:
         str: Hex color code string. Grey for N/A or invalid values.
     """
@@ -20,9 +20,9 @@ def get_color_for_percentage(value, high_is_good=True):
         return "#757575"  # Grey for N/A
     try:
         value = float(value)
-    except (ValueError, TypeError): # pragma: no cover
-        return "#757575" # pragma: no cover
-        
+    except (ValueError, TypeError):  # pragma: no cover
+        return "#757575"  # pragma: no cover
+
     if high_is_good:
         if value >= 80:
             return "#4CAF50"  # Green
@@ -34,7 +34,7 @@ def get_color_for_percentage(value, high_is_good=True):
             return "#FF9800"  # Orange
         else:
             return "#F44336"  # Red
-    else: # Low is good
+    else:  # Low is good
         if value <= 10:
             return "#4CAF50"
         elif value <= 25:
@@ -46,6 +46,7 @@ def get_color_for_percentage(value, high_is_good=True):
         else:
             return "#F44336"
 
+
 def format_value(value, precision=2, default_na="N/A"):
     """Helper to format numerical values or return N/A."""
     if pd.isna(value) or value is None:
@@ -56,12 +57,13 @@ def format_value(value, precision=2, default_na="N/A"):
         logger.debug(f"format_value: Could not convert {value} to float.")
         return default_na
 
+
 def calculate_travel_times(distance_ly):
     """Calculates estimated travel times to a celestial body at various speeds.
-    
+
     Args:
         distance_ly (float or None): The distance to the celestial body in light-years.
-    
+
     Returns:
         dict: A dictionary containing travel time scenarios and their estimated durations.
               Returns "N/A" for times if distance is invalid.
@@ -75,7 +77,7 @@ def calculate_travel_times(distance_ly):
     if pd.isna(distance_ly) or not isinstance(distance_ly, (int, float)) or distance_ly <= 0:
         logger.debug("Travel times: Distance is N/A or invalid.")
         return travel_info
-    
+
     speeds = {
         "Current tech (~0.0057% c)": 0.000057,
         "20% speed of light": 0.20,
@@ -90,31 +92,32 @@ def calculate_travel_times(distance_ly):
         i += 1
     return travel_info
 
+
 def classify_planet(mass_earth, radius_earth, temp_k):
     """Classifies a planet based on its mass, radius, and temperature.
-    
+
     Estimates mass from radius if mass is missing, using simplified power laws.
     Assigns a mass class (e.g., Terran, Jovian) and a temperature class
     (e.g., Mesoplanet, Psychroplanet).
-    
+
     Args:
         mass_earth (float or None): Planet's mass in Earth masses.
         radius_earth (float or None): Planet's radius in Earth radii.
         temp_k (float or None): Planet's equilibrium temperature in Kelvin.
-    
+
     Returns:
         str: A string combining the mass class and temperature class.
     """
     logger.debug(f"Classifying planet with Mass: {mass_earth}, Radius: {radius_earth}, Temp: {temp_k}")
     # Estimate mass from radius if mass is missing (simplified)
     if pd.isna(mass_earth) and pd.notna(radius_earth) and radius_earth > 0:
-        if radius_earth < 1.5: # Rocky
-            mass_earth = (radius_earth / 1.0)**(1/0.3) # Simplified from R ~ M^0.3
+        if radius_earth < 1.5:  # Rocky
+            mass_earth = (radius_earth / 1.0)**(1 / 0.3)  # Simplified from R ~ M^0.3
             logger.debug(f"Estimated mass for rocky planet: {mass_earth}")
-        else: # Gaseous
-            mass_earth = (radius_earth / 1.0)**(1/0.5) # Simplified from R ~ M^0.5
+        else:  # Gaseous
+            mass_earth = (radius_earth / 1.0)**(1 / 0.5)  # Simplified from R ~ M^0.5
             logger.debug(f"Estimated mass for gaseous planet: {mass_earth}")
-    
+
     if pd.isna(mass_earth) or mass_earth <= 0:
         mass_class = "Unknown Mass Class"
     elif mass_earth < 0.00001: mass_class = "Asteroidan"
@@ -124,31 +127,32 @@ def classify_planet(mass_earth, radius_earth, temp_k):
     elif mass_earth < 10: mass_class = "Superterran"
     elif mass_earth < 50: mass_class = "Neptunian"
     elif mass_earth < 5000: mass_class = "Jovian"
-    else: mass_class = "Unknown Mass Class" # pragma: no cover
+    else: mass_class = "Unknown Mass Class"  # pragma: no cover
     logger.debug(f"Mass class: {mass_class}")
 
     if pd.isna(temp_k) or temp_k < 0:
         temp_class = "Unknown Temperature Class"
-    elif temp_k < 170: temp_class = "Hypopsychroplanet (Very Cold)" 
+    elif temp_k < 170: temp_class = "Hypopsychroplanet (Very Cold)"
     elif temp_k < 220: temp_class = "Psychroplanet (Cold)"
     elif temp_k < 273: temp_class = "Mesoplanet (Temperate 1)"
     elif temp_k < 323: temp_class = "Mesoplanet (Temperate 2 - Optimal for Earth Life)"
-    elif temp_k < 373: temp_class = "Thermoplanet (Warm)" # pragma: no cover
-    else: temp_class = "Hyperthermoplanet (Hot)" # pragma: no cover
+    elif temp_k < 373: temp_class = "Thermoplanet (Warm)"  # pragma: no cover
+    else: temp_class = "Hyperthermoplanet (Hot)"  # pragma: no cover
     logger.debug(f"Temperature class: {temp_class}")
-    
+
     final_classification = f"{mass_class} | {temp_class}"
     logger.debug(f"Final classification: {final_classification}")
     return final_classification
 
+
 # --- SEPHI Calculation  ---
 def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, stellar_radius, stellar_teff, system_age, planet_density_val, planet_name_for_log):
     """Calculates the Standard Exoplanet Habitability Index (SEPHI) and its components.
-    
+
     SEPHI is based on four components (L1-L4) representing factors like
     surface conditions, escape velocity, habitable zone position, and potential
     for a magnetic field.
-    
+
     Args:
         planet_mass (float or None): Planet mass in Earth masses.
         planet_radius (float or None): Planet radius in Earth radii.
@@ -159,7 +163,7 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
         system_age (float or None): System age in Gyr.
         planet_density_val (float or None): Planet density in g/cm^3.
         planet_name_for_log (str): Name of the planet for logging purposes.
-    
+
     Returns:
         tuple: (SEPHI_score, L1, L2, L3, L4) all as percentages, or
                (None, None, None, None, None) if core parameters are missing/invalid.
@@ -172,10 +176,10 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
         if isinstance(p_val, str) and p_val.strip() == "": converted_params[name] = None
         else:
             try: converted_params[name] = float(p_val) if p_val is not None and not pd.isna(p_val) else None
-            except ValueError: converted_params[name] = None # pragma: no cover
-    
-    pm, pr, po, sm, sr, st, sa = (converted_params["pl_masse"], converted_params["pl_rade"], converted_params["pl_orbper"], 
-                                   converted_params["st_mass"], converted_params["st_rad"], converted_params["st_teff"], converted_params["st_age"])
+            except ValueError: converted_params[name] = None  # pragma: no cover
+
+    pm, pr, po, sm, sr, st, sa = (converted_params["pl_masse"], converted_params["pl_rade"], converted_params["pl_orbper"],
+                                  converted_params["st_mass"], converted_params["st_rad"], converted_params["st_teff"], converted_params["st_age"])
     pdens = float(planet_density_val) if planet_density_val is not None and not pd.isna(planet_density_val) else None
     logger.debug(f"SEPHI Converted Params: pm={pm}, pr={pr}, po={po}, sm={sm}, sr={sr}, st={st}, sa={sa}, pdens={pdens}")
 
@@ -191,43 +195,43 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
     mu_1_mp = pm ** 0.27
     mu_2_mp = pm ** 0.5
     sigma_1_mp = (mu_2_mp - mu_1_mp) / 3 if (mu_2_mp - mu_1_mp) != 0 else 0.1
-    if sigma_1_mp == 0: sigma_1_mp = 0.1 # Avoid division by zero
+    if sigma_1_mp == 0: sigma_1_mp = 0.1  # Avoid division by zero
     if pr <= mu_1_mp: L1 = 1.0
     elif mu_1_mp < pr < mu_2_mp: L1 = math.exp(-0.5 * ((pr - mu_1_mp) / sigma_1_mp) ** 2)
-    else: L1 = 0.0 # pragma: no cover
+    else: L1 = 0.0  # pragma: no cover
 
-    earth_mass_ref, earth_radius_ref = 1.0, 1.0 # Earth units
+    earth_mass_ref, earth_radius_ref = 1.0, 1.0  # Earth units
     earth_g = earth_mass_ref / (earth_radius_ref ** 2)
     earth_v_e = math.sqrt(earth_g * earth_radius_ref)
     planet_g = pm / (pr ** 2)
     v_e = math.sqrt(planet_g * pr)
     v_e_relative = v_e / earth_v_e if earth_v_e > 0 else 0
-    sigma_21, sigma_22 = (1.0 - 0.0) / 3, (8.66 - 1.0) / 3 # Assuming sigma can"t be zero
+    sigma_21, sigma_22 = (1.0 - 0.0) / 3, (8.66 - 1.0) / 3  # Assuming sigma can"t be zero
     if sigma_21 == 0: sigma_21 = 0.1
     if sigma_22 == 0: sigma_22 = 0.1
     if v_e_relative < 1.0: L2 = math.exp(-0.5 * ((v_e_relative - 1.0) / sigma_21) ** 2)
     else: L2 = math.exp(-0.5 * ((v_e_relative - 1.0) / sigma_22) ** 2)
-    
-    solar_teff_ref = 5778 # K
-    stellar_luminosity = (sr ** 2) * ((st / solar_teff_ref) ** 4) # L_star / L_sun
+
+    solar_teff_ref = 5778  # K
+    stellar_luminosity = (sr ** 2) * ((st / solar_teff_ref) ** 4)  # L_star / L_sun
     G_const, solar_mass_kg_ref = 6.67430e-11, 1.989e30
     stellar_mass_kg = sm * solar_mass_kg_ref
     orbital_period_seconds = po * 86400
-    a_meters = ((G_const * stellar_mass_kg * (orbital_period_seconds ** 2)) / (4 * math.pi ** 2)) ** (1/3)
+    a_meters = ((G_const * stellar_mass_kg * (orbital_period_seconds ** 2)) / (4 * math.pi ** 2)) ** (1 / 3)
     au_per_meter_val = 6.68459e-12
-    semi_major_axis = a_meters * au_per_meter_val # in AU
+    semi_major_axis = a_meters * au_per_meter_val  # in AU
     t_eff_diff = st - 5780
     s_eff_sun_rv, a_rv, b_rv, c_rv, d_rv = 1.766, 1.335e-4, 3.151e-9, -3.348e-12, 5.733e-16
-    s_eff_rv = s_eff_sun_rv + a_rv*t_eff_diff + b_rv*(t_eff_diff**2) + c_rv*(t_eff_diff**3) + d_rv*(t_eff_diff**4)
+    s_eff_rv = s_eff_sun_rv + a_rv * t_eff_diff + b_rv * (t_eff_diff ** 2) + c_rv * (t_eff_diff ** 3) + d_rv * (t_eff_diff ** 4)
     d1 = math.sqrt(stellar_luminosity / s_eff_rv) * 0.68 if s_eff_rv > 0 else 0
     s_eff_sun_rg, a_rg, b_rg, c_rg, d_rg = 1.038, 1.246e-4, 2.874e-9, -3.06e-12, 5.279e-16
-    s_eff_rg = s_eff_sun_rg + a_rg*t_eff_diff + b_rg*(t_eff_diff**2) + c_rg*(t_eff_diff**3) + d_rg*(t_eff_diff**4)
+    s_eff_rg = s_eff_sun_rg + a_rg * t_eff_diff + b_rg * (t_eff_diff ** 2) + c_rg * (t_eff_diff ** 3) + d_rg * (t_eff_diff ** 4)
     d2_hz = math.sqrt(stellar_luminosity / s_eff_rg) if s_eff_rg > 0 else 0
     s_eff_sun_mg, a_mg, b_mg, c_mg, d_mg = 0.3438, 5.894e-5, 1.628e-9, -1.698e-12, 2.92e-16
-    s_eff_mg = s_eff_sun_mg + a_mg*t_eff_diff + b_mg*(t_eff_diff**2) + c_mg*(t_eff_diff**3) + d_mg*(t_eff_diff**4)
+    s_eff_mg = s_eff_sun_mg + a_mg * t_eff_diff + b_mg * (t_eff_diff ** 2) + c_mg * (t_eff_diff ** 3) + d_mg * (t_eff_diff ** 4)
     d3_hz = math.sqrt(stellar_luminosity / s_eff_mg) if s_eff_mg > 0 else 0
     s_eff_sun_em, a_em, b_em, c_em, d_em = 0.3179, 5.451e-5, 1.526e-9, -1.598e-12, 2.747e-16
-    s_eff_em = s_eff_sun_em + a_em*t_eff_diff + b_em*(t_eff_diff**2) + c_em*(t_eff_diff**3) + d_em*(t_eff_diff**4)
+    s_eff_em = s_eff_sun_em + a_em * t_eff_diff + b_em * (t_eff_diff ** 2) + c_em * (t_eff_diff ** 3) + d_em * (t_eff_diff ** 4)
     d4 = math.sqrt(stellar_luminosity / s_eff_em) * 1.35 if s_eff_em > 0 else 0
     mu_31, sigma_31 = d2_hz, (d2_hz - d1) / 3 if (d2_hz - d1) != 0 else 0.1
     mu_32, sigma_32 = d3_hz, (d4 - d3_hz) / 3 if (d4 - d3_hz) != 0 else 0.1
@@ -237,10 +241,10 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
     elif semi_major_axis < d2_hz: L3 = 0.0 if semi_major_axis < d1 else math.exp(-0.5 * ((semi_major_axis - mu_31) / sigma_31) ** 2)
     else: L3 = 0.0 if semi_major_axis > d4 else math.exp(-0.5 * ((semi_major_axis - mu_32) / sigma_32) ** 2)
 
-    earth_density_ref = 5.51 # g/cm^3
+    earth_density_ref = 5.51  # g/cm^3
     planet_density_actual = pdens if pdens is not None else (earth_density_ref * (pm / (pr ** 3)) if pr > 0 and pm is not None else earth_density_ref)
-    t_gyr_norm = sa / 10.0 if sa is not None else 0.5 # Assuming 0.5 if age is unknown
-    a_lock = (sm ** (1/3)) * ((planet_density_actual / earth_density_ref) ** (-1/3)) * (t_gyr_norm ** (1/6)) * 0.06 if earth_density_ref > 0 else 0
+    t_gyr_norm = sa / 10.0 if sa is not None else 0.5  # Assuming 0.5 if age is unknown
+    a_lock = (sm ** (1 / 3)) * ((planet_density_actual / earth_density_ref) ** (-1 / 3)) * (t_gyr_norm ** (1 / 6)) * 0.06 if earth_density_ref > 0 else 0
     is_tidally_locked = semi_major_axis <= a_lock
     beta_1_val = pr
     if L1 > 0.5:
@@ -249,30 +253,31 @@ def calculate_sephi(planet_mass, planet_radius, orbital_period, stellar_mass, st
     else:
         if pr <= 5.0: rho_0n, r_0n, F_n = 0.45, 1.8 * beta_1_val, 4 * beta_1_val
         elif pr <= 15.0: rho_0n, r_0n, F_n = 0.18, 4.8 * beta_1_val, 20 * beta_1_val
-        else: rho_0n, r_0n, F_n = 0.16, 16 * beta_1_val, 100 * beta_1_val # pragma: no cover
+        else: rho_0n, r_0n, F_n = 0.16, 16 * beta_1_val, 100 * beta_1_val  # pragma: no cover
         alpha_val = 1.0
-    M_n_val = alpha_val * (rho_0n ** 0.5) * (r_0n ** (10/3)) * (F_n ** (1/3))
+    M_n_val = alpha_val * (rho_0n ** 0.5) * (r_0n ** (10 / 3)) * (F_n ** (1 / 3))
     mu_4, sigma_4 = 1.0, (1.0 - 0.0) / 3
     if sigma_4 == 0: sigma_4 = 0.1
     L4 = 1.0 if M_n_val >= 1.0 else math.exp(-0.5 * ((M_n_val - mu_4) / sigma_4) ** 2)
 
-    sephi_val = (L1 * L2 * L3 * L4) ** (1/4) if L1*L2*L3*L4 > 0 else 0.0
-    logger.info(f"SEPHI for {planet_name_for_log}: {sephi_val*100:.2f} (L1:{L1*100:.1f}, L2:{L2*100:.1f}, L3:{L3*100:.1f}, L4:{L4*100:.1f})")
+    sephi_val = (L1 * L2 * L3 * L4) ** (1 / 4) if L1 * L2 * L3 * L4 > 0 else 0.0
+    logger.info(f"SEPHI for {planet_name_for_log}: {sephi_val * 100:.2f} (L1:{L1 * 100:.1f}, L2:{L2 * 100:.1f}, L3:{L3 * 100:.1f}, L4:{L4 * 100:.1f})")
     return sephi_val * 100, L1 * 100, L2 * 100, L3 * 100, L4 * 100
+
 
 # --- Core Calculation Functions ---
 def calculate_esi_score(planet_data, weights):
     """Calculates the Earth Similarity Index (ESI) for a planet.
-    
+
     The ESI measures similarity to Earth based on radius, density, and
     equilibrium temperature, weighted by the provided weights.
-    
+
     Args:
         planet_data (dict): Dictionary containing planet parameters like
                             'pl_rade', 'pl_dens', 'pl_eqt'.
         weights (dict): Dictionary of weights for 'Size', 'Density',
                         and 'Habitable Zone' (temperature).
-    
+
     Returns:
         tuple: (float ESI_score (0-100), str color_code_for_ESI).
                Returns 0.0 if no valid components are found.
@@ -291,12 +296,12 @@ def calculate_esi_score(planet_data, weights):
     for param_key, weight_val in esi_factors_map.items():
         planet_val = planet_data.get(param_key)
         earth_val = earth_params.get(param_key)
-        
+
         if pd.notna(planet_val) and pd.notna(earth_val) and earth_val != 0:
             try:
                 planet_val_fl = float(planet_val)
                 earth_val_fl = float(earth_val)
-                
+
                 # Calculate similarity component
                 if (planet_val_fl + earth_val_fl) == 0:
                     similarity_component = 0.0
@@ -305,9 +310,9 @@ def calculate_esi_score(planet_data, weights):
                 if similarity_component < 0:
                     similarity_component = 0.0
 
-                # Apply weight and normalize, direct multiplication by weight   
+                # Apply weight and normalize, direct multiplication by weight
                 scaled_component = similarity_component * (weight_val / MAX_WEIGHT)  # Aqui usamos MAX_WEIGHT
-                
+
                 esi_components.append(scaled_component)
                 num_params += 1
                 logger.debug(f"ESI scaled component for {param_key}: {scaled_component}, Similarity: {similarity_component}")
@@ -321,22 +326,23 @@ def calculate_esi_score(planet_data, weights):
     # Calculate final ESI as the average of components
     final_esi = (sum(esi_components) / num_params) * 100
     final_esi = max(0.0, min(final_esi, 100.0))
-    
+
     return round(final_esi, 2), get_color_for_percentage(final_esi)
+
 
 def calculate_sph_score(planet_data, weights):
     """Calculates the Standard Primary Habitability (SPH) score for a planet.
-    
+
     The SPH is primarily based on the planet's equilibrium temperature (pl_eqt)
     and its suitability for Earth-like life (water in liquid state).
     The 'weights' argument is present for consistency but not directly used
     in the current SPH calculation logic.
-    
+
     Args:
         planet_data (dict): Dictionary containing planet parameters,
                             especially 'pl_eqt' (equilibrium temperature in K).
         weights (dict): (Currently unused by this function but kept for API consistency).
-    
+
     Returns:
         tuple: (float SPH_score (0-100), str color_code_for_SPH).
                Returns 0.0 if temperature is N/A.
@@ -364,24 +370,25 @@ def calculate_sph_score(planet_data, weights):
     logger.info(f"Final SPH for {planet_data.get('pl_name', 'Unknown')}: {final_sph}")
     return round(final_sph, 2), get_color_for_percentage(final_sph)
 
+
 def calculate_phi_score(planet_data, phi_weights):
     """Calculates a Planetary Habitability Index (PHI) score.
-    
+
     PHI is based on factors like "Solid Surface", "Stable Energy",
     "Life Compounds" (currently not auto-assessed), and "Stable Orbit".
     These factors are weighted according to phi_weights.
-    
+
     Args:
         planet_data (dict): Dictionary containing planet and star parameters
                             (e.g., 'classification', 'st_spectype', 'st_age', 'pl_orbeccen').
         phi_weights (dict): Dictionary of weights for PHI factors.
-    
+
     Returns:
         tuple: (float PHI_score (0-100), str color_code_for_PHI).
                Returns 0.0 if total weight is zero.
     """
     logger.debug(f"Calculating PHI for planet: {planet_data.get('pl_name', 'Unknown')}")
-    
+
     factors_present_scores = {
         "Solid Surface": 0.0,
         "Stable Energy": 0.0,
@@ -450,34 +457,36 @@ def calculate_phi_score(planet_data, phi_weights):
 
     return round(final_phi, 2), get_color_for_percentage(final_phi)
 
+
 # --- Habiitability Score Calculation Function - Lifersearch Project ---
 def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weights_config):
     """Calculates a dictionary of detailed habitability scores for a planet.
-    
+
     Scores cover aspects like Size, Density, Mass, Atmosphere Potential,
     Liquid Water Potential, Habitable Zone Position, Host Star Type,
     System Age, Star Metallicity, and Orbital Eccentricity.
     The 'weights_config' argument is present for consistency but not
     directly used for individual score calculations here.
-    
+
     Args:
         planet_data_dict (dict): Dictionary of planet and stellar parameters.
         hz_data_tuple (tuple): Tuple containing habitable zone boundaries
                                (ohz_in, chz_in, chz_out, ohz_out, teqa) or None.
         weights_config (dict): (Currently unused by this function but kept for API consistency).
-    
+
     Returns:
         dict: A dictionary where keys are score names (e.g., "Size") and
               values are tuples of (score_value, color_code).
     """
     logger.debug(f"Calculating detailed scores for: {planet_data_dict.get('pl_name', 'Unknown')}")
     scores = {}
+
     def to_float_or_none(val):
         if pd.isna(val) or val is None: return None
         try: return float(val)
-        except (ValueError, TypeError): # pragma: no cover
-            logger.debug(f"Detailed scores: Could not convert {val} to float.") # pragma: no cover
-            return None # pragma: no cover
+        except (ValueError, TypeError):  # pragma: no cover
+            logger.debug(f"Detailed scores: Could not convert {val} to float.")  # pragma: no cover
+            return None  # pragma: no cover
 
     radius = to_float_or_none(planet_data_dict.get("pl_rade"))
     mass = to_float_or_none(planet_data_dict.get("pl_masse"))
@@ -507,8 +516,8 @@ def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weig
     if density is not None:
         if "Terran" in classification and 4.5 <= density <= 6.5: score_val = 100
         elif (
-            (("Terran" in classification or "Superterran" in classification) and (3.0 <= density < 4.5)) or
-            (("Terran" in classification or "Superterran" in classification) and (6.5 < density <= 8.0))
+            (("Terran" in classification or "Superterran" in classification) and (3.0 <= density < 4.5))
+            or (("Terran" in classification or "Superterran" in classification) and (6.5 < density <= 8.0))
         ): score_val = 90
         elif (("Mini-Terran" in classification or "Subterran" in classification or "Superterran" in classification) and (density < 3.0 or density > 8.0)): score_val = 70
         else: score_val = 50
@@ -538,8 +547,8 @@ def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weig
         ohz_in, chz_in, chz_out, ohz_out, _ = map(to_float_or_none, hz_data_tuple)
         if all(v is not None for v in [ohz_in, chz_in, chz_out, ohz_out]):
             if chz_in <= orbit_dist_au <= chz_out: hz_score = 95
-            elif ohz_in <= orbit_dist_au < chz_in or chz_out < orbit_dist_au <= ohz_out: hz_score = 65 # pragma: no cover
-            else: hz_score = 20 # pragma: no cover
+            elif ohz_in <= orbit_dist_au < chz_in or chz_out < orbit_dist_au <= ohz_out: hz_score = 65  # pragma: no cover
+            else: hz_score = 20  # pragma: no cover
         else: hz_score = 15
     elif st_lum_log is not None and orbit_dist_au is not None:
         lum_linear = 10**st_lum_log
@@ -565,7 +574,7 @@ def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weig
         elif 0.5 <= st_age_gyr < 1.0 or 8.0 < st_age_gyr <= 10.0: age_score = 60
         else: age_score = 30
     scores["System Age"] = (age_score, get_color_for_percentage(age_score)); logger.debug(f"System Age score: {scores['System Age']}")
-    
+
     met_score = 0
     if st_met_dex is not None:
         if -0.5 <= st_met_dex <= 0.5 : met_score = 90
@@ -583,10 +592,11 @@ def calculate_detailed_habitability_scores(planet_data_dict, hz_data_tuple, weig
     logger.debug(f"All detailed scores calculated: {scores}")
     return scores
 
+
 # --- Main Data Processing Function ---
 def process_planet_data(planet_name, combined_data, weights_config):
     """Processes raw planet data to calculate various metrics and prepare for reporting.
-    
+
     This function orchestrates calls to:
     - classify_planet
     - calculate_travel_times
@@ -594,12 +604,12 @@ def process_planet_data(planet_name, combined_data, weights_config):
     - calculate_detailed_habitability_scores
     - calculate_sephi
     It also formats data for display (e.g., star info, orbit info).
-    
+
     Args:
         planet_name (str): The name of the planet.
         combined_data (pd.Series or dict): Combined data for the planet from various sources.
         weights_config (dict): Configuration for weights used in ESI, SPH, PHI calculations.
-    
+
     Returns:
         dict: A comprehensive dictionary containing:
               - "planet_data_dict": The processed and enriched planet data.
@@ -631,7 +641,7 @@ def process_planet_data(planet_name, combined_data, weights_config):
 
     # Log specific values being accessed
     keys_to_log = [
-        "pl_name", "pl_rade", "pl_masse", "pl_dens", "pl_eqt", "st_teff", "st_rad", 
+        "pl_name", "pl_rade", "pl_masse", "pl_dens", "pl_eqt", "st_teff", "st_rad",
         "st_lum", "sy_dist", "pl_orbper", "pl_orbsmax", "st_spectype", "st_age", "pl_orbeccen"
     ]
     for key in keys_to_log:
@@ -643,14 +653,14 @@ def process_planet_data(planet_name, combined_data, weights_config):
     logger.debug(f"Final planet_data_dict['pl_name'] for {planet_name}: {planet_data_dict.get('pl_name')}")
 
     classification_display = classify_planet(
-        planet_data_dict.get("pl_masse"), 
-        planet_data_dict.get("pl_rade"), 
+        planet_data_dict.get("pl_masse"),
+        planet_data_dict.get("pl_rade"),
         planet_data_dict.get("pl_eqt")
     )
     planet_data_dict["classification"] = classification_display
     logger.debug(f"Classification for {planet_name}: {classification_display}")
 
-    sy_dist_pc = planet_data_dict.get("sy_dist") # Distance in parsecs
+    sy_dist_pc = planet_data_dict.get("sy_dist")  # Distance in parsecs
     sy_dist_ly = None
     if pd.notna(sy_dist_pc):
         try: sy_dist_ly = float(sy_dist_pc) * 3.26156
@@ -669,7 +679,7 @@ def process_planet_data(planet_name, combined_data, weights_config):
         "luminosity_log_solar": format_value(planet_data_dict.get("st_lum"), precision=3),
         "age_gyr": format_value(planet_data_dict.get("st_age")),
         "metallicity_dex": format_value(planet_data_dict.get("st_met")),
-        "distance_ly": format_value(sy_dist_ly) 
+        "distance_ly": format_value(sy_dist_ly)
     }
     planet_data_dict["star_info"] = star_info_dict
     logger.debug(f"Star info for {planet_name}: {star_info_dict}")
@@ -685,7 +695,7 @@ def process_planet_data(planet_name, combined_data, weights_config):
     logger.debug(f"Orbit info for {planet_name}: {orbit_info_dict}")
 
     hz_data_tuple = (
-        planet_data_dict.get("hz_ohzin"), planet_data_dict.get("hz_chzin"), 
+        planet_data_dict.get("hz_ohzin"), planet_data_dict.get("hz_chzin"),
         planet_data_dict.get("hz_chzout"), planet_data_dict.get("hz_ohzout"),
         planet_data_dict.get("hz_teqa")
     )
@@ -704,29 +714,29 @@ def process_planet_data(planet_name, combined_data, weights_config):
     logger.debug(f"All scores (basic + detailed) for {planet_name}: {scores_for_report}")
 
     sephi_main, l1, l2, l3, l4 = calculate_sephi(
-        planet_data_dict.get("pl_masse"), planet_data_dict.get("pl_rade"), 
-        planet_data_dict.get("pl_orbper"), planet_data_dict.get("st_mass"), 
-        planet_data_dict.get("st_rad"), planet_data_dict.get("st_teff"), 
+        planet_data_dict.get("pl_masse"), planet_data_dict.get("pl_rade"),
+        planet_data_dict.get("pl_orbper"), planet_data_dict.get("st_mass"),
+        planet_data_dict.get("st_rad"), planet_data_dict.get("st_teff"),
         planet_data_dict.get("st_age"), planet_data_dict.get("pl_dens"),
         planet_data_dict.get("pl_name", planet_name)
     )
     sephi_scores_for_report = {}
     if sephi_main is not None:
-        sephi_scores_for_report["SEPHI"] = (round(sephi_main,2), get_color_for_percentage(sephi_main))
-        sephi_scores_for_report["L1 (Surface)"] = (round(l1,1), get_color_for_percentage(l1))
-        sephi_scores_for_report["L2 (Escape Velocity)"] = (round(l2,1), get_color_for_percentage(l2))
-        sephi_scores_for_report["L3 (Habitable Zone)"] = (round(l3,1), get_color_for_percentage(l3))
-        sephi_scores_for_report["L4 (Magnetic Field)"] = (round(l4,1), get_color_for_percentage(l4))
+        sephi_scores_for_report["SEPHI"] = (round(sephi_main, 2), get_color_for_percentage(sephi_main))
+        sephi_scores_for_report["L1 (Surface)"] = (round(l1, 1), get_color_for_percentage(l1))
+        sephi_scores_for_report["L2 (Escape Velocity)"] = (round(l2, 1), get_color_for_percentage(l2))
+        sephi_scores_for_report["L3 (Habitable Zone)"] = (round(l3, 1), get_color_for_percentage(l3))
+        sephi_scores_for_report["L4 (Magnetic Field)"] = (round(l4, 1), get_color_for_percentage(l4))
     else:
         sephi_scores_for_report["SEPHI"] = ("N/A", get_color_for_percentage(None))
-        for i in range(1,5): sephi_scores_for_report[f"L{i}"] = ("N/A", get_color_for_percentage(None))
+        for i in range(1, 5): sephi_scores_for_report[f"L{i}"] = ("N/A", get_color_for_percentage(None))
     logger.debug(f"SEPHI scores for {planet_name}: {sephi_scores_for_report}")
-    
+
     # Add formatted direct values to planet_data_dict for easier template access if needed
     # This ensures that if a template directly accesses e.g. {{ planet_info.pl_rade }},
     # it gets a formatted value or N/A, but keeps numerical fields as floats for calculations.
     fields_to_format_directly = [
-        "pl_rade", "pl_masse", "pl_dens", "pl_eqt", "pl_orbper", "pl_orbsmax", 
+        "pl_rade", "pl_masse", "pl_dens", "pl_eqt", "pl_orbper", "pl_orbsmax",
         "sy_dist", "st_teff", "st_rad", "st_mass", "st_lum",
         "discoverymethod", "disc_year", "disc_facility"
     ]
@@ -754,9 +764,8 @@ def process_planet_data(planet_name, combined_data, weights_config):
         "sephi_scores_for_report": sephi_scores_for_report,
         "hz_data_tuple": hz_data_tuple,
         "star_data_for_plot": star_data_for_plot,
-        "classification_display": planet_data_dict.get("classification"), # Make it directly accessible
-        "travel_curiosities": planet_data_dict.get("travel_curiosities"), # Make it directly accessible
-        "star_info": planet_data_dict.get("star_info"), # Make it directly accessible
-        "orbit_info": planet_data_dict.get("orbit_info") # Make it directly accessible
+        "classification_display": planet_data_dict.get("classification"),  # Make it directly accessible
+        "travel_curiosities": planet_data_dict.get("travel_curiosities"),  # Make it directly accessible
+        "star_info": planet_data_dict.get("star_info"),  # Make it directly accessible
+        "orbit_info": planet_data_dict.get("orbit_info")  # Make it directly accessible
     }
-

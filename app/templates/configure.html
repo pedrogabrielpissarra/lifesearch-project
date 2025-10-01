@@ -5,7 +5,7 @@
     <h2>Configure Weights</h2>
     <p class="lead">Adjust weights (0.0 to 1.0) for each factor used in habitability calculations. Default values are 1.0 for general factors and 0.25 for PHI components.</p>
 
-<!-- Nova seção para valores de referência -->
+<!-- New section for reference values -->
 <div class="card mb-4">
     <div class="card-header bg-info text-white">
         <h3 class="h5 mb-0">Reference Values</h3>
@@ -46,7 +46,7 @@
     </div>
 </div>
 
-    <!-- Seção para pesos individuais por planeta -->
+    <!-- Section for individual planet weights -->
     <div class="mb-4">
         <h3>Weights per Planet</h3>
         <div class="form-check mb-3">
@@ -57,9 +57,9 @@
         </div>
     
         <div id="planet-weights-container" style="display: none;">
-            <!-- Será preenchido via JavaScript -->
+            <!-- Filled via JavaScript -->
         </div>
-        <!-- Botão para salvar todos os pesos individuais -->
+        <!-- Button to save individual weights -->
         <div id="save-individual-weights-button-container" class="d-grid gap-2 col-6 mx-auto mt-3 mb-3" style="display: none;">
              <button type="button" id="save-all-individual-weights-btn" class="btn btn-primary btn-lg">Save All Individual Planet Weights</button>
         </div>
@@ -73,7 +73,7 @@
 
 {% block scripts %}
 <script>
-// Função de normalização no JavaScript
+// Normalize function JavaScript
 function normalizePlanetName(name) {
     if (!name || typeof name !== 'string') return '';
     name = name.trim().replace(/–/g, '-').replace(/\s+/g, '');
@@ -157,7 +157,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const displayNameKey = factorDef.label;
 
-        // Usar pesos iniciais para habitability ou PHI
+        // Use initial weights for PHI and HAB if available
         if (category === 'hab' && INITIAL_HAB_WEIGHTS[planetNormalizedName] && INITIAL_HAB_WEIGHTS[planetNormalizedName][displayNameKey] !== undefined) {
             console.log(`Using INITIAL_HAB_WEIGHTS for ${planetNormalizedName}, ${displayNameKey}: ${INITIAL_HAB_WEIGHTS[planetNormalizedName][displayNameKey]}`);
             return INITIAL_HAB_WEIGHTS[planetNormalizedName][displayNameKey];
@@ -525,7 +525,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Carregar valores de referência apenas se a tabela estiver vazia
+    // Load reference values on page load if table is empty
     const existingRows = document.querySelectorAll('#reference_values tr');
     if (existingRows.length === 0 && document.getElementById('reference-values-table')) {
         loadReferenceValues();
