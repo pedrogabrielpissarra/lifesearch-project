@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
 import logging
@@ -9,6 +8,7 @@ import json  # For logging context and SAVING DATA
 import traceback  # For explicit error printing
 import matplotlib
 matplotlib.use("Agg")  # Set non-interactive backend for matplotlib
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
