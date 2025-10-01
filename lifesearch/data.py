@@ -5,7 +5,6 @@ from io import StringIO
 import os
 import json
 from datetime import datetime, timedelta
-import re
 import numpy as np
 
 # Configure logging
@@ -15,11 +14,12 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = "/home/ubuntu/lifesearch/cache"
 CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
 
+
 def ensure_dir(directory):
     """Ensures that a directory exists, creating it if necessary.
-    
+
     Logs the creation of the directory if it did not already exist.
-    
+
     Args:
         directory (str): The path to the directory to check/create.
     """
@@ -27,21 +27,23 @@ def ensure_dir(directory):
         os.makedirs(directory)
         logger.info(f"Created directory: {directory}")
 
+
 def ensure_cache_ready():
     """Create cache directory on app startup."""
     ensure_dir(CACHE_DIR)
 
+
 # --- NORMALIZE NAMES FOR COMPARISON ---
 def normalize_name(name):
     """Normalizes a planet name for consistent comparisons and cache key generation.
-    
+
     Converts the name to lowercase, removes leading/trailing spaces,
     replaces en-dashes with hyphens, removes other spaces, and keeps only
     alphanumeric characters.
-    
+
     Args:
         name (str or None): The planet name to normalize.
-    
+
     Returns:
         str: The normalized planet name. Returns an empty string if the input
              is None, not a string, or results in an empty string after processing.
@@ -50,30 +52,31 @@ def normalize_name(name):
         return ""
     # Remove leading/trailing spaces, replace en-dashes with hyphens, remove other spaces
     name = name.strip().replace("–", "-").replace(" ", "")
-    return ''.join(c for c in name.lower() if c.isalnum()
-    )
+    return ''.join(c for c in name.lower() if c.isalnum())
+
 
 # --- CACHE HELPER FUNCTIONS ---
 def get_cache_filepath(planet_name_slug):
     """Constructs the full file path for a cached planet data file.
-    
+
     Args:
         planet_name_slug (str): The normalized (slugified) name of the planet.
-    
+
     Returns:
         str: The absolute file path for the JSON cache file.
     """
     return os.path.join(CACHE_DIR, f"{planet_name_slug}.json")
 
+
 def convert_numpy_types(data):
     """Converts NumPy data types within a dictionary or pandas Series to standard Python types.
-    
+
     This is primarily used to ensure data is JSON serializable before caching.
     Handles np.integer, np.floating, np.bool_, pd.Timestamp, and NaN values, including in nested structures.
-    
+
     Args:
         data (dict or pd.Series): The data structure containing potentially NumPy-specific types.
-    
+
     Returns:
         dict: A dictionary with NumPy types converted to their Python equivalents
               (e.g., np.int64 to int, np.nan to None).
@@ -97,19 +100,20 @@ def convert_numpy_types(data):
     if isinstance(data, dict):
         cleaned_data = {}
         for key, value in data.items():
-            cleaned_data[key] = convert_numpy_types(value)  # Recursão
+            cleaned_data[key] = convert_numpy_types(value)  # Recursive call for nested structures
         return cleaned_data
     elif isinstance(data, list):
-        return [convert_numpy_types(item) for item in data]  # Recursão para listas
-    return data # pragma: no cover
+        return [convert_numpy_types(item) for item in data]  # Recursive call for list items
+    return data  # pragma: no cover
+
 
 def write_to_cache(planet_name_slug, data_series):
     """Writes planet data to a JSON cache file.
-    
+
     The data, typically a pandas Series or dict, is converted to ensure JSON
     compatibility (e.g., NumPy types to Python types). A timestamp is
     added to the cache entry.
-    
+
     Args:
         planet_name_slug (str): The normalized (slugified) name of the planet,
                                 used as part of the cache filename.
@@ -123,7 +127,7 @@ def write_to_cache(planet_name_slug, data_series):
         elif isinstance(data_series, dict):
             data_to_cache_dict = convert_numpy_types(data_series.copy())
         else:
-            logger.error(f"Unsupported data type for caching for {planet_name_slug}: {type(data_series)}") 
+            logger.error(f"Unsupported data type for caching for {planet_name_slug}: {type(data_series)}")
             return
 
         cache_content = {
@@ -137,19 +141,20 @@ def write_to_cache(planet_name_slug, data_series):
         problematic_data_str = "Error converting problematic_data to string"
         try:
             problematic_data_str = str(data_to_cache_dict if data_to_cache_dict else data_series)
-        except: # pragma: no cover
+        except Exception:  # pragma: no cover
             pass
         logger.error(f"Error writing to cache file {cache_file} for {planet_name_slug}: {e}. Problematic data snippet: {problematic_data_str[:500]}", exc_info=True)
 
+
 def read_from_cache(planet_name_slug):
     """Reads planet data from a JSON cache file if it exists and is not expired.
-    
+
     Checks for the cache file, validates its timestamp against CACHE_EXPIRATION_HOURS,
     and attempts to load the JSON data.
-    
+
     Args:
         planet_name_slug (str): The normalized (slugified) name of the planet.
-    
+
     Returns:
         pd.Series or None: A pandas Series containing the cached planet data if found
                            and valid, otherwise None.
@@ -168,30 +173,31 @@ def read_from_cache(planet_name_slug):
                         logger.info(f"Cache hit for {planet_name_slug}. Returning cached data as pd.Series.")
                         return pd.Series(cached_data_dict)
                     else:
-                        logger.warning(f"Cache for {planet_name_slug} missing 'data_dict' key.") # pragma: no cover
-                        return None # pragma: no cover
+                        logger.warning(f"Cache for {planet_name_slug} missing 'data_dict' key.")  # pragma: no cover
+                        return None  # pragma: no cover
                 else:
                     logger.info(f"Cache expired for {planet_name_slug}.")
             else:
-                logger.warning(f"Cache found for {planet_name_slug} but no timestamp.") 
+                logger.warning(f"Cache found for {planet_name_slug} but no timestamp.")
         except json.JSONDecodeError:
             logger.error(f"Error decoding JSON from cache file: {cache_file}", exc_info=True)
         except Exception as e:
             logger.error(f"Error reading from cache file {cache_file}: {e}", exc_info=True)
     return None
 
+
 # --- FETCH EXOPLANET DATA FROM NASA EXOPLANET ARCHIVE API (with Caching) ---
 def fetch_exoplanet_data_api(planet_name):
     """Fetches exoplanet data from the NASA Exoplanet Archive API, using a local cache.
-    
+
     First, attempts to read data from the cache. If not found or expired,
     it queries the NASA Exoplanet Archive TAP service for composite parameters
     (pscomppars table). The fetched data is then cached for future requests.
-    
+
     Args:
         planet_name (str): The exact name of the planet as recognized by the API.
                            Normalization for caching is handled internally.
-    
+
     Returns:
         pd.Series or None: A pandas Series containing the planet's data if found,
                            otherwise None.
@@ -199,7 +205,7 @@ def fetch_exoplanet_data_api(planet_name):
     planet_name_slug = normalize_name(planet_name).replace(" ", "_").replace("-", "_")
     cached_data_series = read_from_cache(planet_name_slug)
     if cached_data_series is not None:
-        return cached_data_series # pragma: no cover
+        return cached_data_series  # pragma: no cover
 
     logger.info(f"Cache miss for {planet_name}. Fetching from API.")
     base_url = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
@@ -208,23 +214,23 @@ def fetch_exoplanet_data_api(planet_name):
     encoded_query = requests.utils.quote(adql_query_string)
     request_url = f"{base_url}?query={encoded_query}&format=csv"
     logger.info(f"Fetching data for {planet_name} from NASA Exoplanet Archive API: {request_url}")
-    
+
     try:
         response = requests.get(request_url, timeout=30)
         response.raise_for_status()
         csv_data = response.text
         if not csv_data or csv_data.strip() == "" or "<!DOCTYPE html>" in csv_data.lower() or "ERROR" in csv_data[:200].upper():
-            logger.warning(f"No valid data or error page returned for {planet_name} from API. Response snippet: {csv_data[:200]}") # pragma: no cover
-            return None # pragma: no cover
-            
+            logger.warning(f"No valid data or error page returned for {planet_name} from API. Response snippet: {csv_data[:200]}")  # pragma: no cover
+            return None  # pragma: no cover
+
         df = pd.read_csv(StringIO(csv_data))
         if df.empty:
-            logger.warning(f"No data found for exoplanet: {planet_name} in the archive. Query: {adql_query_string}") # pragma: no cover
-            return None # pragma: no cover
-        
+            logger.warning(f"No data found for exoplanet: {planet_name} in the archive. Query: {adql_query_string}")  # pragma: no cover
+            return None  # pragma: no cover
+
         data_series = df.iloc[0]
         logger.info(f"Successfully fetched data for {planet_name}.")
-        write_to_cache(planet_name_slug, data_series.copy()) # Write a copy to cache
+        write_to_cache(planet_name_slug, data_series.copy())  # Write a copy to cache
         return data_series
     except requests.exceptions.HTTPError as http_err:
         logger.error(f"HTTP error occurred while fetching data for {planet_name}: {http_err} - URL: {request_url}")
@@ -240,13 +246,14 @@ def fetch_exoplanet_data_api(planet_name):
         logger.error(f"An unexpected error occurred fetching data for {planet_name}: {e} - URL: {request_url}", exc_info=True)
     return None
 
+
 # --- LOAD AND CLEAN HWC DATA ---
 def load_hwc_catalog(filepath="/home/ubuntu/lifesearch/data/hwc.csv"):
     """Loads the Habitable Worlds Catalog (HWC) data from a CSV file.
-    
+
     Args:
         filepath (str): The path to the HWC CSV file.
-    
+
     Returns:
         pd.DataFrame: A pandas DataFrame containing the HWC data.
                       Returns an empty DataFrame if the file is not found or
@@ -263,13 +270,14 @@ def load_hwc_catalog(filepath="/home/ubuntu/lifesearch/data/hwc.csv"):
         logger.error(f"Error loading HWC data from {filepath}: {e}", exc_info=True)
         return pd.DataFrame()
 
+
 # --- LOAD HZGALLERY DATA ---
 def load_hzgallery_catalog(filepath="/home/ubuntu/lifesearch/data/table-hzgallery.csv"):
     """Loads the Habitable Zone Gallery (HZGallery) data from a CSV file.
-    
+
     Args:
         filepath (str): The path to the HZGallery CSV file.
-    
+
     Returns:
         pd.DataFrame: A pandas DataFrame containing the HZGallery data.
                       Returns an empty DataFrame if the file is not found or
@@ -280,21 +288,22 @@ def load_hzgallery_catalog(filepath="/home/ubuntu/lifesearch/data/table-hzgaller
         logger.info(f"Loaded HABITABLE ZONE GALLERY (HZgallery) - {filepath} with {len(df)} planets")
         return df
     except FileNotFoundError:
-        logger.error(f"HZGallery catalog file not found at {filepath}") # pragma: no cover
-        return pd.DataFrame() # pragma: no cover
+        logger.error(f"HZGallery catalog file not found at {filepath}")  # pragma: no cover
+        return pd.DataFrame()  # pragma: no cover
     except Exception as e:
         logger.error(f"Error loading HZGallery data from {filepath}: {e}", exc_info=True)
         return pd.DataFrame()
 
+
 # --- MERGE DATA SOURCES ---
 def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_for_match=None, original_planet_name_query=None):
     """Merges planet data from multiple sources: API, HWC, and HZGallery.
-    
+
     Starts with API data (if available) and augments/fills missing values using
     data from the HWC and HZGallery DataFrames, matching by normalized planet names.
     Prioritizes API data, then fills with HWC, then HZGallery.
     Specific logic is applied for certain fields like ESI from HWC ('pl_esi_hwc').
-    
+
     Args:
         api_data (pd.Series or dict or None): Data fetched from the NASA Exoplanet Archive API.
         hwc_df (pd.DataFrame, optional): DataFrame loaded from the HWC catalog.
@@ -303,7 +312,7 @@ def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_fo
                                                in HWC and HZGallery.
         original_planet_name_query (str, optional): The original planet name used in the API query,
                                                     used as a fallback for 'pl_name' if missing.
-    
+
     Returns:
         dict: A dictionary containing the combined and augmented data for the planet.
     """
@@ -316,8 +325,8 @@ def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_fo
             combined_data = api_data.copy()
             logger.debug(f"API data for {planet_name_for_match} is already a dict.")
         else:
-            logger.warning(f"api_data for {planet_name_for_match} is of unexpected type: {type(api_data)}. Initializing empty dict.") # pragma: no cover
-            combined_data = {} # pragma: no cover
+            logger.warning(f"api_data for {planet_name_for_match} is of unexpected type: {type(api_data)}. Initializing empty dict.")  # pragma: no cover
+            combined_data = {}  # pragma: no cover
     else:
         combined_data = {}
         logger.info(f"API data is None for {planet_name_for_match}. Starting with an empty dataset.")
@@ -329,7 +338,7 @@ def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_fo
             combined_data["pl_name"] = name_to_set
             logger.debug(f"pl_name was missing, set to: {name_to_set}")
         else:
-            logger.warning(f"Cannot set pl_name for {planet_name_for_match} as both original and normalized names are missing.") # pragma: no cover
+            logger.warning(f"Cannot set pl_name for {planet_name_for_match} as both original and normalized names are missing.")  # pragma: no cover
 
     # HWC Fallback and Augmentation
     if hwc_df is not None and not hwc_df.empty and planet_name_for_match:
@@ -362,23 +371,23 @@ def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_fo
                                     if pd.notna(converted_value):
                                         combined_data[standard_key] = converted_value
                                         logger.debug(f"Stored HWC ESI as '{standard_key}': {converted_value} for {planet_name_for_match}")
-                                except Exception as e_conv: # pragma: no cover
-                                    logger.warning(f"Could not convert HWC value for {hwc_key} ('{hwc_row[hwc_key]}') to {standard_key}: {e_conv}") # pragma: no cover
+                                except Exception as e_conv:  # pragma: no cover
+                                    logger.warning(f"Could not convert HWC value for {hwc_key} ('{hwc_row[hwc_key]}') to {standard_key}: {e_conv}")  # pragma: no cover
                             elif pd.isna(current_val_in_combined) or str(current_val_in_combined).strip() == "":
                                 try:
                                     converted_value = converter(hwc_row[hwc_key])
                                     if pd.notna(converted_value):
                                         combined_data[standard_key] = converted_value
                                         logger.debug(f"Populated '{standard_key}' from HWC '{hwc_key}': {converted_value} for {planet_name_for_match}")
-                                except Exception as e_conv: # pragma: no cover
-                                    logger.warning(f"Could not convert HWC value for {hwc_key} ('{hwc_row[hwc_key]}') to {standard_key}: {e_conv}") # pragma: no cover
+                                except Exception as e_conv:  # pragma: no cover
+                                    logger.warning(f"Could not convert HWC value for {hwc_key} ('{hwc_row[hwc_key]}') to {standard_key}: {e_conv}")  # pragma: no cover
                     if 'P_HABITABLE' in hwc_row and pd.notna(hwc_row['P_HABITABLE']):
-                        phi_raw = float(hwc_row['P_HABITABLE']) # pragma: no cover
-                        if phi_raw == 0: combined_data['hwc_phi_category'] = 0.0 # pragma: no cover
-                        elif phi_raw == 1: combined_data['hwc_phi_category'] = 0.5 # pragma: no cover
-                        else: combined_data['hwc_phi_category'] = 1.0 # pragma: no cover
-                        logger.debug(f"Set 'hwc_phi_category' from HWC P_HABITABLE: {combined_data['hwc_phi_category']} for {planet_name_for_match}") # pragma: no cover
-                else: logger.info(f"No matching HWC data found for {planet_name_for_match}.") # pragma: no cover
+                        phi_raw = float(hwc_row['P_HABITABLE'])  # pragma: no cover
+                        if phi_raw == 0: combined_data['hwc_phi_category'] = 0.0  # pragma: no cover
+                        elif phi_raw == 1: combined_data['hwc_phi_category'] = 0.5  # pragma: no cover
+                        else: combined_data['hwc_phi_category'] = 1.0  # pragma: no cover
+                        logger.debug(f"Set 'hwc_phi_category' from HWC P_HABITABLE: {combined_data['hwc_phi_category']} for {planet_name_for_match}")  # pragma: no cover
+                else: logger.info(f"No matching HWC data found for {planet_name_for_match}.")  # pragma: no cover
             else: logger.warning("P_NAME column not found in HWC data.")
         except Exception as e:
             logger.error(f"Error merging HWC data for {planet_name_for_match}: {e}", exc_info=True)
@@ -396,7 +405,7 @@ def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_fo
                     hz_mapping = {
                         'OHZIN': ('hz_ohzin', float), 'CHZIN': ('hz_chzin', float),
                         'CHZOUT': ('hz_chzout', float), 'OHZOUT': ('hz_ohzout', float),
-                        'TEQA': ('hz_teqa', float) # HZGallery's Teq, pl_eqt is preferred
+                        'TEQA': ('hz_teqa', float)  # HZGallery's Teq, pl_eqt is preferred
                     }
                     for hz_key, (standard_key, converter) in hz_mapping.items():
                         if hz_key in hz_row and pd.notna(hz_row[hz_key]) and str(hz_row[hz_key]).strip() != "":
@@ -412,12 +421,13 @@ def merge_data_sources(api_data, hwc_df=None, hz_gallery_df=None, planet_name_fo
             else: logger.warning("PLANET column not found in HZGallery data.")
         except Exception as e:
             logger.error(f"Error merging HZGallery data for {planet_name_for_match}: {e}", exc_info=True)
-    
+
     logger.debug(f"Final combined_data keys for {planet_name_for_match} after merge: {list(combined_data.keys())}")
     return combined_data
 
-if __name__ == '__main__': # pragma: no cover
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(threadName)s - %(message)s') 
+
+if __name__ == '__main__':  # pragma: no cover
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(threadName)s - %(message)s')
     # Test Caching
     # test_series = pd.Series({'name': 'Test Planet', 'mass': np.float64(1.0), 'radius': 1, 'is_habitable': np.bool_(True), 'discovery_date': pd.Timestamp('2024-01-01')})
     # write_to_cache('test_planet_cache', test_series)
@@ -435,7 +445,7 @@ if __name__ == '__main__': # pragma: no cover
         hzg_test_df = load_hzgallery_catalog()
         merged_data_dict = merge_data_sources(api_data_test, hwc_test_df, hzg_test_df, normalize_name(planet_name_to_test), planet_name_to_test)
         print(f"\nMerged data for {planet_name_to_test} (dict sample):")
-        for k, v in list(merged_data_dict.items())[:10]: # Print first 10 items
+        for k, v in list(merged_data_dict.items())[:10]:  # Print first 10 items
             print(f"  {k}: {v}")
         print(f"  pl_masse: {merged_data_dict.get('pl_masse')}")
         print(f"  pl_rade: {merged_data_dict.get('pl_rade')}")
@@ -444,4 +454,3 @@ if __name__ == '__main__': # pragma: no cover
 
     else:
         print(f"Failed to fetch API data for {planet_name_to_test}.")
-

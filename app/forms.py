@@ -1,11 +1,12 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, SubmitField, FloatField, TextAreaField
-from wtforms.validators import DataRequired, NumberRange, Optional, Regexp
+from wtforms import SubmitField, FloatField, TextAreaField
+from wtforms.validators import DataRequired, NumberRange, Optional
+
 
 class PlanetSearchForm(FlaskForm):
     """Form for searching planets and optionally overriding parameters."""
     planet_names = TextAreaField(
-        'Planet Names (separated by comma or new line)', 
+        'Planet Names (separated by comma or new line)',
         validators=[DataRequired(message="Please enter at least one planet name.")],
         render_kw={"rows": 3, "placeholder": "E.g.: Kepler-452 b, TRAPPIST-1 e, Proxima Cen b"}
     )
@@ -15,6 +16,7 @@ class PlanetSearchForm(FlaskForm):
         render_kw={"rows": 5, "placeholder": "Format: PlanetName: param1=value1; param2=value2\nE.g.: Kepler-452 b: pl_rade=2.4; st_age=6.0\nTRAPPIST-1 e: pl_eqt=250"}
     )
     submit = SubmitField('Search Planets')
+
 
 class HabitabilityWeightsForm(FlaskForm):
     """Form for configuring the weights of habitability factors."""
@@ -32,14 +34,15 @@ class HabitabilityWeightsForm(FlaskForm):
     for field_name, label_text in factors.items():
         form_field_name = field_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
         field = FloatField(
-            label_text, 
+            label_text,
             validators=[Optional(), NumberRange(min=0, max=1, message="Weight must be between 0 and 1.")],
             default=1.0,
             render_kw={"step": "0.01"}
         )
         locals()[form_field_name] = field
-    
+
     submit_weights = SubmitField('Save Weights')
+
 
 class PHIWeightsForm(FlaskForm):
     """Form for configuring the weights of PHI (Planet Habitability Index) factors."""
@@ -61,4 +64,3 @@ class PHIWeightsForm(FlaskForm):
         locals()[form_field_name] = field
 
     submit_phi_weights = SubmitField('Save PHI Weights')
-

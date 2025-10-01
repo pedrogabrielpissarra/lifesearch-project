@@ -44,11 +44,11 @@ routes_bp = Blueprint("routes", __name__)
 
 def replace_nan_with_none(obj):
     """Recursively replaces float NaN values with None in a nested data structure.
-    
+
     Args:
         obj (dict, list, float, or other): The object to process. Can be a dictionary,
                                             list, or a single value.
-    
+
     Returns:
         The processed object with NaN values replaced by None.
     """
@@ -60,18 +60,20 @@ def replace_nan_with_none(obj):
         return None
     return obj
 
+
 def get_template_env():
     """Initializes and returns a Jinja2 template environment.
-    
+
     Configures the template loader to look for templates in the 'templates'
     directory relative to the application's root path. Enables autoescaping
     for security.
-    
+
     Returns:
         jinja2.Environment: The configured Jinja2 environment.
     """
     template_loader = FileSystemLoader(searchpath=os.path.join(current_app.root_path, "templates"))
-    return Environment(loader=template_loader, autoescape=True) # Added autoescape for security
+    return Environment(loader=template_loader, autoescape=True)  # Added autoescape for security
+
 
 DEFAULT_HABITABILITY_WEIGHTS = {
     "Habitable Zone": 1.0, "Size": 1.0, "Density": 1.0, "Atmosphere": 1.0,
@@ -81,8 +83,6 @@ DEFAULT_PHI_WEIGHTS = {
     "Solid Surface": 0.25, "Stable Energy": 0.25,
     "Life Compounds": 0.25, "Stable Orbit": 0.25
 }
-
-from flask import current_app as app
 
 
 def _coerce_weight_value(value, fallback):
@@ -251,27 +251,28 @@ def calculate_initial_phi_weights(planet_data, phi_val):
 @routes_bp.app_context_processor
 def inject_global_vars():
     """Injects global variables into the template context.
-    
+
     Makes the current year and the datetime object available in all templates.
-    
+
     Returns:
         dict: A dictionary of variables to inject into the template context.
     """
     return {
         "current_year": datetime.now().year,
-        "datetime": datetime # Make datetime object available for templates if needed
+        "datetime": datetime  # Make datetime object available for templates if needed
     }
+
 
 @routes_bp.route("/", methods=["GET", "POST"])
 @routes_bp.route("/index", methods=["GET", "POST"], endpoint="index")
 def index():
     """Handles the main page for planet search.
-    
+
     Displays the planet search form. On GET request with 'restore=1' parameter,
     it restores planet names and parameter overrides from the session.
     On POST request (form submission), it validates the input, stores
     planet names and overrides in the session, and redirects to the results page.
-    
+
     Returns:
         werkzeug.wrappers.response.Response: Renders the index.html template or
                                              redirects to the results page.
@@ -283,9 +284,9 @@ def index():
     if request.method == "GET" and request.args.get("restore") == "1":
         planet_names_list = session.get("planet_names_list", [])
         parameter_overrides_input = session.get("parameter_overrides_input", "")
-        
+
         logger.info(f"Index: Restoring session - planet_names_list={planet_names_list}, parameter_overrides_input={parameter_overrides_input}")
-        
+
         if planet_names_list:
             form.planet_names.data = ", ".join(planet_names_list)
         if parameter_overrides_input:
@@ -295,7 +296,7 @@ def index():
     if form.validate_on_submit():
         planet_names_input = form.planet_names.data
         parameter_overrides_input = form.parameter_overrides.data
-        
+
         planet_names_list = [name.strip() for name in planet_names_input.replace(",", "\n").split("\n") if name.strip()]
 
         if not planet_names_list:
@@ -308,27 +309,28 @@ def index():
         session.modified = True
         logger.info(f"Index: Updated session with planet_names_list={planet_names_list}, parameter_overrides_input={parameter_overrides_input}")
         logger.info(f"Index: Session after update: {dict(session)}")
-        
+
         return redirect(url_for("routes.results"))
 
     logger.info(f"Index: Rendering index.html with session: {dict(session)}")
     return render_template("index.html", form=form, title="LifeSearch Web")
 
+
 @routes_bp.route("/configure", methods=["GET", "POST"])
 def configure():
     """Handles the configuration page for habitability and PHI weights.
-    
+
     Displays forms for setting global and potentially planet-specific weights.
     Retrieves planet names from the session and fetches their reference ESI/PHI
     values based on current global weights for display.
-    
+
     Returns:
         werkzeug.wrappers.response.Response: Renders the configure.html template.
     """
     planet_names_list = session.get("planet_names_list", [])
     logger.info(f"Configure: Full session content: {dict(session)}")
     logger.info(f"Configure: planet_names_list na sessão = {planet_names_list}")
-    
+
     hab_form = HabitabilityWeightsForm(prefix="hab")
     phi_form = PHIWeightsForm(prefix="phi")
 
@@ -363,19 +365,19 @@ def configure():
         for planet_name in planet_names_list:
             logger.info(f"Processing reference values for planet: {planet_name}")
             api_data = fetch_exoplanet_data_api(planet_name)
-            
+
             if api_data is None:
                 logger.warning(f"Could not fetch API data for reference values of {planet_name}.")
                 continue
-            
+
             if "pl_name" not in api_data or pd.isna(api_data.get("pl_name")):
                 api_data["pl_name"] = planet_name
-                
+
             normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
             combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
-            
+
             logger.debug(f"Combined data for {normalized_planet_name}: {combined_data}")
-            
+
             habitability_weights_for_planet = dict(current_global_hab_weights)
             phi_weights_for_planet = dict(current_global_phi_weights)
             if use_individual:
@@ -396,13 +398,13 @@ def configure():
                     "phi": phi_weights_for_planet
                 }
             )
-            
+
             if processed_result:
                 planet_data = processed_result.get("planet_data_dict", {})
                 scores = processed_result.get("scores_for_report", {})
-                
+
                 logger.info(f"Configure: scores para {normalized_planet_name}: {scores}")
-                
+
                 esi_data = scores.get("ESI")
                 if isinstance(esi_data, tuple):
                     esi_val = esi_data[0]
@@ -465,15 +467,16 @@ def configure():
         initial_phi_weights_json=json.dumps(initial_phi_weights)
     )
 
+
 @routes_bp.route("/api/planets/reference-values", methods=["GET"])
 def get_planet_reference_values_hyphen():
     """
     API endpoint (hyphenated path) to provide reference ESI, PHI, and classification
     for planets currently in the session.
-    
+
     This endpoint calls `get_planet_reference_values` and is provided for frontend
     compatibility that might prefer hyphenated URLs.
-    
+
     Returns:
         flask.Response: JSON response containing a list of planets with their
                         reference values.
@@ -486,12 +489,12 @@ def get_planet_reference_values():
     """
     API endpoint to calculate and return reference ESI, PHI, and classification
     for planets in the session.
-    
+
     On GET, uses global weights from the session or defaults.
     On POST, can accept `use_individual_weights` and `planet_weights` to calculate
     reference values with potentially different weights for each planet, without
     permanently saving these weights to the session from this endpoint.
-    
+
     Returns:
         flask.Response: JSON response containing a list of planets, each with
                         'name', 'esi', 'phi', and 'classification'.
@@ -499,12 +502,12 @@ def get_planet_reference_values():
     logger = current_app.logger
     planet_names_list = session.get("planet_names_list", [])
     logger.info(f"API reference_values: planet_names_list na sessão = {planet_names_list}")
-    
+
     if not planet_names_list:
         return jsonify({"planets": []})
-    
+
     # Handle POST data for individual weights without saving to session
-    
+
     use_individual_weights = False
     planet_weights = {}
     if request.method == "POST":
@@ -514,7 +517,7 @@ def get_planet_reference_values():
         logger.info(f"API reference_values - POST data: use_individual_weights={use_individual_weights}, planet_weights={planet_weights}")
         if use_individual_weights and not planet_weights:
             use_individual_weights = False
-    
+
     default_habitability_weights = dict(
         current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
     )
@@ -523,28 +526,28 @@ def get_planet_reference_values():
     )
     global_habitability_weights = get_effective_weights("habitability_weights", default_habitability_weights)
     global_phi_weights = get_effective_weights("phi_weights", default_phi_weights)
-    
+
     logger.info(f"API reference_values - Global weights: hab={global_habitability_weights}, phi={global_phi_weights}")
-    
+
     hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
     hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
-    
+
     reference_planets = []
-    
+
     for planet_name in planet_names_list:
         logger.info(f"Processing reference values for planet: {planet_name}")
         api_data = fetch_exoplanet_data_api(planet_name)
-        
+
         if api_data is None:
             logger.warning(f"Could not fetch API data for reference values of {planet_name}.")
             continue
-        
+
         if "pl_name" not in api_data or pd.isna(api_data.get("pl_name")):
             api_data["pl_name"] = planet_name
-            
+
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
-        
+
         weights = {
             "habitability": dict(global_habitability_weights),
             "phi": dict(global_phi_weights)
@@ -564,19 +567,19 @@ def get_planet_reference_values():
                 if isinstance(phi_overrides, dict):
                     weights["phi"].update(phi_overrides)
                 logger.info(f"Using individual weights for {normalized_planet_name}: {planet_specific_weights}")
-        
+
         processed_result = process_planet_data(
             normalized_planet_name,
             combined_data,
             weights
         )
-        
+
         if processed_result:
             planet_data = processed_result.get("planet_data_dict", {})
             scores = processed_result.get("scores_for_report", {})
-            
+
             logger.info(f"API reference_values - Scores for {normalized_planet_name}: {scores}")
-            
+
             esi_data_api = scores.get("ESI")
             if isinstance(esi_data_api, tuple):
                 esi_val_api = esi_data_api[0]
@@ -584,7 +587,7 @@ def get_planet_reference_values():
                 esi_val_api = esi_data_api
             else:
                 esi_val_api = 0.0
-            
+
             phi_data_api = scores.get("PHI")
             if isinstance(phi_data_api, tuple):
                 phi_val_api = phi_data_api[0]
@@ -592,40 +595,41 @@ def get_planet_reference_values():
                 phi_val_api = phi_data_api
             else:
                 phi_val_api = 0.0
-            
+
             reference_planet = {
                 "name": planet_data.get("pl_name", normalized_planet_name),
                 "esi": esi_val_api,
                 "phi": phi_val_api,
                 "classification": planet_data.get("classification", "Unknown")
             }
-            
+
             reference_planets.append(reference_planet)
-    
+
     return jsonify({"planets": reference_planets})
+
 
 @routes_bp.route("/results", endpoint="results")
 def results():
     """Generates and displays the analysis results for selected planets.
-    
+
     Retrieves planet names, parameter overrides, and weight configurations
     from the session. For each planet, it fetches data, applies overrides,
     processes it (calculating scores, generating plots), and creates an
     individual HTML report.
     It also generates a summary report and a combined report for all processed planets.
     Reports and charts are saved to a timestamped session directory.
-    
+
     Returns:
         werkzeug.wrappers.response.Response: Renders the results.html template
                                              with links to the generated reports.
                                              Redirects to index if no planets are in session.
     """
-    logger = current_app.logger 
+    logger = current_app.logger
     planet_names_list = session.get("planet_names_list", [])
     parameter_overrides_input = session.get("parameter_overrides_input", "")
-    
+
     logger.info(f"Results: Full session content: {dict(session)}")
-    
+
     default_habitability_weights = dict(
         current_app.config.get("DEFAULT_HABITABILITY_WEIGHTS", DEFAULT_HABITABILITY_WEIGHTS)
     )
@@ -636,7 +640,7 @@ def results():
     global_phi_weights = get_effective_weights("phi_weights", default_phi_weights)
 
     use_individual_weights = session.get('use_individual_weights', False)
-    individual_planet_weights_map = session.get('planet_weights', {}) 
+    individual_planet_weights_map = session.get('planet_weights', {})
     logger.info(f"Results: use_individual_weights={use_individual_weights}, individual_planet_weights_map={individual_planet_weights_map}")
     logger.info(f"Results: individual_planet_weights_map keys={list(individual_planet_weights_map.keys())}")
 
@@ -647,11 +651,11 @@ def results():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_results_dir_name = f"lifesearch_results_{timestamp}"
     absolute_session_results_dir = os.path.join(current_app.config["RESULTS_DIR"], session_results_dir_name)
-    
+
     if not os.path.exists(absolute_session_results_dir):
         os.makedirs(absolute_session_results_dir)
-    
-    absolute_charts_output_dir = os.path.join(absolute_session_results_dir, "charts") 
+
+    absolute_charts_output_dir = os.path.join(absolute_session_results_dir, "charts")
     if not os.path.exists(absolute_charts_output_dir):
         os.makedirs(absolute_charts_output_dir)
 
@@ -659,7 +663,7 @@ def results():
     hwc_df = load_hwc_catalog(os.path.join(current_app.config["DATA_DIR"], "hwc.csv"))
     hz_gallery_df = load_hzgallery_catalog(os.path.join(current_app.config["DATA_DIR"], "table-hzgallery.csv"))
 
-    all_planets_processed_data_for_summary = [] 
+    all_planets_processed_data_for_summary = []
     report_links = []
     user_overrides = {}
 
@@ -686,7 +690,7 @@ def results():
     for planet_name in planet_names_list:
         logger.info(f"Processing planet: {planet_name}")
         api_data = fetch_exoplanet_data_api(planet_name)
-        
+
         if api_data is None:
             logger.warning(f"Could not fetch API data for {planet_name}. Skipping individual report.")
             flash(f"Could not retrieve API data for {planet_name}.", "warning")
@@ -701,10 +705,10 @@ def results():
         if current_planet_overrides:
             logger.info(f"Applying overrides for {planet_name}: {current_planet_overrides}")
             for key, value in current_planet_overrides.items():
-                api_data[key] = value 
-        
+                api_data[key] = value
+
         if "pl_name" not in api_data or pd.isna(api_data.get("pl_name")):
-            api_data["pl_name"] = planet_name 
+            api_data["pl_name"] = planet_name
 
         normalized_planet_name = normalize_name(api_data.get("pl_name", planet_name))
         logger.info(f"Normalized planet name: '{planet_name}' -> '{normalized_planet_name}'")
@@ -741,8 +745,8 @@ def results():
             normalized_planet_name,
             combined_data,
             {"habitability": current_hab_weights, "phi": current_phi_weights}
-        )                   
-        
+        )
+
         if not processed_result:
             logger.warning(f"Processing failed or returned no data for {planet_name}. Creating placeholder.")
             processed_result = {
@@ -758,21 +762,21 @@ def results():
         sephi_scores_for_report = processed_result.get("sephi_scores_for_report", {})
         hz_data_tuple = processed_result.get("hz_data_tuple")
         star_info = processed_result.get("star_info", {})
-        
+
         plots = {}
         hz_plot_filename = plot_habitable_zone(
-            planet_data_dict, star_info, hz_data_tuple, 
+            planet_data_dict, star_info, hz_data_tuple,
             absolute_charts_output_dir, normalized_planet_name
         )
         if hz_plot_filename:
             plots["hz_plot"] = f"charts/{hz_plot_filename}"
-        
+
         scores_plot_filename = plot_scores_comparison(
             scores_for_report, absolute_charts_output_dir, normalized_planet_name
         )
         if scores_plot_filename:
             plots["scores_plot"] = f"charts/{scores_plot_filename}"
-        
+
         try:
             report_path = generate_planet_report_html(
                 planet_data_dict,
@@ -783,7 +787,7 @@ def results():
                 absolute_session_results_dir,
                 normalized_planet_name
             )
-            
+
             if report_path:
                 report_filename = os.path.basename(report_path)
                 report_links.append({
@@ -796,16 +800,16 @@ def results():
         except Exception as e:
             logger.error(f"Error generating individual report for {planet_name}: {e}", exc_info=True)
             flash(f"Error generating individual report for {planet_name}: {e}", "warning")
-        
+
         all_planets_processed_data_for_summary.append(processed_result)
 
     if all_planets_processed_data_for_summary:
         logger.info(f"Attempting to generate summary and combined reports for {len(all_planets_processed_data_for_summary)} processed planet entries.")
-        
+
         try:
             summary_report_path = generate_summary_report_html(
-                all_planets_processed_data_for_summary, 
-                template_env, 
+                all_planets_processed_data_for_summary,
+                template_env,
                 absolute_session_results_dir
             )
             if summary_report_path:
@@ -855,17 +859,18 @@ def results():
         session_dir=session_results_dir_name
     )
 
+
 @routes_bp.route("/results_archive/<path:results_dir>/<path:filename>")
 def serve_generated_file(results_dir, filename):
     """Serves generated report files and charts from the results archive.
-    
+
     Ensures that files are served only from within the application's
     configured RESULTS_DIR to prevent directory traversal attacks.
-    
+
     Args:
         results_dir (str): The specific timestamped subdirectory within RESULTS_DIR.
         filename (str): The name of the file to serve.
-    
+
     Returns:
         werkzeug.wrappers.response.Response: The requested file or a 403 error
                                              if access is denied.
@@ -873,24 +878,25 @@ def serve_generated_file(results_dir, filename):
     # Ensure the directory is always relative to RESULTS_DIR and secure
     directory = os.path.normpath(os.path.join(current_app.config["RESULTS_DIR"], results_dir))
     logger.info(f"Attempting to serve file: {filename} from directory: {directory}")
-    
+
     # Security check: ensure the path is within RESULTS_DIR
     if not directory.startswith(os.path.normpath(current_app.config["RESULTS_DIR"])):
         logger.error(f"Attempt to access file outside of RESULTS_DIR: {directory} (filename: {filename})")
         return "Access denied", 403
-        
+
     return send_from_directory(directory, filename)
+
 
 @routes_bp.route('/api/planets/autocomplete')
 def planets_autocomplete():
     """API endpoint for planet name autocompletion.
-    
+
     Searches the local HWC (Habitable Worlds Catalog) CSV file for planet names
     matching the provided 'term' query parameter.
-    
+
     Query Args:
         term (str): The search term for planet names (minimum 2 characters).
-    
+
     Returns:
         flask.Response: JSON list of suggestions (up to 20) in the format
                         `[{'value': 'PlanetName'}]`. Returns an empty list
@@ -898,26 +904,26 @@ def planets_autocomplete():
                         Returns an error JSON on file issues.
     """
     term = request.args.get('term', '').strip().lower()
-    
+
     if not term or len(term) < 2:
         return jsonify([])
 
     try:
         hwc_file_path = os.path.join(current_app.config["DATA_DIR"], "hwc.csv")
-        hwc_df = load_hwc_catalog(hwc_file_path) 
+        hwc_df = load_hwc_catalog(hwc_file_path)
 
         suggestions = []
         #  Usar 'P_NAME' em vez de 'pl_name'
         if 'P_NAME' in hwc_df.columns:
             #  Filtrar e selecionar da coluna 'P_NAME'
             mask = hwc_df['P_NAME'].astype(str).str.lower().str.contains(term, na=False)
-            matched_names = hwc_df.loc[mask, 'P_NAME'].unique() 
-            
+            matched_names = hwc_df.loc[mask, 'P_NAME'].unique()
+
             suggestions = [{'value': name} for name in matched_names]
         else:
             #  Mensagem de log atualizada
             current_app.logger.warning("Column 'P_NAME' not found in HWC DataFrame for autocomplete.")
-        
+
         return jsonify(suggestions[:20])
 
     except FileNotFoundError:
@@ -926,18 +932,19 @@ def planets_autocomplete():
     except Exception as e:
         current_app.logger.error(f"Error processing HWC for autocomplete: {e}", exc_info=True)
         return jsonify({"error": "Could not fetch suggestions from local HWC catalog"}), 500
-    
+
+
 @routes_bp.route('/api/planets/parameters', methods=['POST'])
 def get_planet_parameters():
     """API endpoint to fetch raw parameters for a list of planet names.
-    
+
     Accepts a JSON POST request with a list of 'planet_names'. For each name,
     it fetches data from an external API (e.g., NASA Exoplanet Archive).
     NaN values in the fetched data are replaced with None.
-    
+
     JSON Request Body:
         {"planet_names": ["Planet1", "Planet2"]}
-    
+
     Returns:
         flask.Response: JSON response containing a list of 'planets', where each
                         item is a dictionary of parameters for that planet,
@@ -945,16 +952,16 @@ def get_planet_parameters():
     """
     data = request.json
     planet_names = data.get('planet_names', [])
-    
+
     if not planet_names:
         return jsonify({'error': 'No planet names provided'}), 400
-    
-    planets_data_raw = [] # Renomeado para clareza
-    
+
+    planets_data_raw = []  # renamed to indicate raw data before cleaning
+
     for planet_name in planet_names:
         try:
             api_data = fetch_exoplanet_data_api(planet_name)
-            
+
             if api_data is None:
                 planets_data_raw.append({
                     'pl_name': planet_name,
@@ -962,12 +969,12 @@ def get_planet_parameters():
                     'message': 'Planet data not found'
                 })
                 continue
-            
+
             if isinstance(api_data, pd.Series):
                 api_data = api_data.to_dict()
-            
+
             planets_data_raw.append(api_data)
-            
+
         except Exception as e:
             logger.error(f"Error fetching data for planet {planet_name}: {e}", exc_info=True)
             planets_data_raw.append({
@@ -975,19 +982,20 @@ def get_planet_parameters():
                 'status': 'error',
                 'message': str(e)
             })
-    
-    # >>> CHAMADA PARA A FUNÇÃO DE LIMPEZA <<<
+
+    # >>> CALL TO CLEANING FUNCTION <<<
     planets_data_cleaned = replace_nan_with_none(planets_data_raw)
-    
-    return jsonify({'planets': planets_data_cleaned}) # Use a lista limpa
+
+    return jsonify({'planets': planets_data_cleaned})  # Use cleaned data
+
 
 @routes_bp.route('/api/clear-session', methods=['POST'])
 def clear_session():
     """API endpoint to clear specific items from the user's session.
-    
+
     Specifically removes 'parameter_overrides_input', 'planet_weights',
     and 'use_individual_weights' from the session.
-    
+
     Returns:
         flask.Response: JSON response indicating the status of the operation.
     """
@@ -998,14 +1006,15 @@ def clear_session():
     logger.info(f"Clear-session: After clear, session content: {dict(session)}")
     return jsonify({"status": "partial session cleared"})
 
+
 @routes_bp.route('/api/save-planet-weights', methods=['POST'])
 def save_planet_weights():
     """API endpoint to save planet-specific or global weight configurations to the session.
-    
+
     Accepts a JSON POST request with `use_individual_weights` (bool) and
     `planet_weights` (dict). Planet names in `planet_weights` are normalized.
     Updates the session with these settings.
-    
+
     JSON Request Body:
         {
             "use_individual_weights": true,
@@ -1014,7 +1023,7 @@ def save_planet_weights():
                 ...
             }
         }
-    
+
     Returns:
         flask.Response: JSON response indicating the status of the operation.
     """
@@ -1068,13 +1077,14 @@ def save_planet_weights():
 
     return jsonify({'status': 'success', 'saved_weights': filtered_planet_weights})
 
+
 @routes_bp.route('/api/debug-session', methods=['GET'])
 def debug_session():
     """API endpoint for debugging session content.
-    
+
     Returns a JSON representation of selected session variables, useful for
     development and troubleshooting.
-    
+
     Returns:
         flask.Response: JSON object with 'planet_names_list', 'use_individual_weights',
                         and 'planet_weights' from the session.
@@ -1086,26 +1096,29 @@ def debug_session():
         'planet_weights': session.get('planet_weights')
     })
 
+
 @routes_bp.app_errorhandler(404)
 def page_not_found(e):
     return render_template("error.html", error_code=404, error_message="Page not found."), 404
+
 
 @routes_bp.app_errorhandler(500)
 def internal_server_error(e):
     logger.error(f"Internal server error: {e}", exc_info=True)
     return render_template("error.html", error_code=500, error_message="An internal server error occurred."), 500
 
+
 @routes_bp.route('/api/save-planets-to-session', methods=['POST'])
 def save_planets_to_session():
     """API endpoint to save a list of planet names to the session.
-    
+
     Accepts a JSON POST request containing a list of 'planet_names'.
     This is typically used by the frontend to update the session when
     planets are added or removed in the UI, for example, on the 'configure' page.
-    
+
     JSON Request Body:
         {"planet_names": ["Planet1", "Planet2", ...]}
-    
+
     Returns:
         flask.Response: JSON response indicating 'saved' status or 'no_planets'
                         with a 400 error if the list is empty.
@@ -1117,4 +1130,3 @@ def save_planets_to_session():
         current_app.logger.info(f"Saved planet_names_list to session: {planet_names}")
         return jsonify({"status": "saved"})
     return jsonify({"status": "no_planets"}), 400
-
