@@ -10,9 +10,15 @@ import numpy as np
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Cache configuration
-CACHE_DIR = "/home/ubuntu/lifesearch/cache"
+# --- Production (container) ---
 CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
+CACHE_DIR = "/app/data/cache"
+
+# Ensure directory exists inside container
+os.makedirs(CACHE_DIR, exist_ok=True)
+# Cache configuration -- development path, change as needed ---
+# CACHE_DIR = "/home/ubuntu/lifesearch/cache"
+# CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
 
 
 def ensure_dir(directory):
