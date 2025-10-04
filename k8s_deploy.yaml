@@ -26,6 +26,12 @@ spec:
                 secretKeyRef:
                   name: lifesearch-secrets
                   key: flask-secret
+            - name: LIFESEARCH_CACHE_DIR
+              value: /tmp/lifesearch_cache
+            - name: LIFESEARCH_RESULTS_DIR
+              value: /tmp/lifesearch_results
+            - name: LIFESEARCH_SESSION_DIR
+              value: /tmp/flask_session
           resources:
             requests:
               cpu: "250m"
