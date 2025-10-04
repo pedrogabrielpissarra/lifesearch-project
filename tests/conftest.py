@@ -7,15 +7,17 @@ mock = types.ModuleType("matplotlib")
 mock.use = lambda *args, **kwargs: None
 mock.__version__ = "mocked"
 
+
 # Dummy bar to simulate bar objects returned by barh
 class DummyBar:
     def get_width(self): return 42.0
     def get_y(self): return 1.0
     def get_height(self): return 0.5
 
+
 class DummyAx:
     def axvspan(self, *a, **kw): return None
-    def barh(self, *a, **kw): return [DummyBar()]  
+    def barh(self, *a, **kw): return [DummyBar()]
     def plot(self, *a, **kw): return None
     def set_xlim(self, *a, **kw): return None
     def set_ylim(self, *a, **kw): return None
@@ -26,13 +28,16 @@ class DummyAx:
     def legend(self, *a, **kw): return None
     def text(self, *a, **kw): return None
 
+
 dummy_ax = DummyAx()
+
 
 # Fake savefig to avoid actual file creation
 def fake_savefig(path, *a, **kw):
     with open(path, "wb") as f:
         f.write(b"")
     return None
+
 
 # Submodule pyplot mock
 mock_pyplot = types.SimpleNamespace(

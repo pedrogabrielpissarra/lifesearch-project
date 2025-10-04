@@ -12,7 +12,7 @@ class TestHelpers:
         (45, "#FFC107"),   # yellow (>=40)
         (25, "#FF9800"),   # orange (>=20)
         (10, "#F44336"),   # rede (<20)
-        (None, "#757575"), # invalid = grey
+        (None, "#757575"),  # invalid = grey
     ])
     def test_get_color_for_percentage(self, value, expected):
         """Should return the correct color (Material Design palette) for different percentage values"""
@@ -37,7 +37,7 @@ class TestHelpers:
         result = format_value("abc")
         assert result == "N/A"
         assert any("Could not convert" in m for m in caplog.messages)
-        
+
     # ---------------------------
     # calculate_travel_times
     # ---------------------------
@@ -63,6 +63,7 @@ class TestHelpers:
     # ---------------------------
     # classify_planet
     # ---------------------------
+
     def test_classify_planet_terran(self):
         """Should classify as Terran planet for Earth-like values"""
         classification = lm.classify_planet(radius_earth=1.0, mass_earth=1.0, temp_k=288)
@@ -131,7 +132,7 @@ class TestCalculationsESI:
         esi, _ = lm.calculate_esi_score(planet_data, {"Size": 1, "Density": 1, "Habitable Zone": 1})
         assert esi == 0.0
 
-    def test_calculate_esi_score_no_valid_components(self):
+    def test_calculate_esi_score_no_valid_components_alt(self):
         from lifesearch.lifesearch_main import calculate_esi_score
         planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
         weights = {"Size": 1.0, "Density": 1.0, "Habitable Zone": 1.0}
@@ -145,10 +146,11 @@ class TestCalculationsESI:
         result = calculate_esi_score(planet_data, weights)
         assert result == (0.0, "#F44336")  # 0% => red not grey
 
+
 class TestCalculationsPHI:
     # ---------------------------
     # PHI
-    # ---------------------------    
+    # ---------------------------
     def test_phi_earth_like(self):
         """PHI for Earth-like planet should be high"""
         planet_data = {
@@ -219,10 +221,11 @@ class TestCalculationsPHI:
         assert score > 0
         assert color.startswith("#")
 
+
 class TestCalculationsSPH:
     # ---------------------------
     # SPH
-    # ---------------------------    
+    # ---------------------------
     def test_sph_earth_like(self):
         """SPH for Earth-Sun system should be high"""
         planet_data = {
@@ -284,10 +287,11 @@ class TestCalculationsSPH:
         assert score == 0.0
         assert color == "#F44336"  # 0% should return red
 
+
 class TestCalculationsSEPHI:
     # ---------------------------
     # SEPHI
-    # ---------------------------      
+    # ---------------------------
     def test_sephi_earth_like(self):
         """SEPHI for Earth-like planet should be high"""
         result = lm.calculate_sephi(
@@ -351,6 +355,7 @@ class TestCalculationsSEPHI:
         # pm=1.0 force mu_1_mp == mu_2_mp, logo sigma_1_mp == 0
         result = calculate_sephi(1, 1, 365, 1, 1, 5778, 5, 5.5, "TestPlanet")
         assert isinstance(result[0], float)  # Should recalculate without exploding
+
 
 class TestDetailedScores:
     def test_size_score_terran_optimal(self):
@@ -486,6 +491,7 @@ class TestDetailedScores:
         scores = calculate_detailed_habitability_scores(planet_data, None, {})
         assert scores["Habitable Zone Position"][0] == 25
 
+
 class TestProcessPlanetData:
     def test_process_planet_data_with_dict(self):
         from lifesearch.lifesearch_main import process_planet_data
@@ -512,7 +518,7 @@ class TestProcessPlanetData:
     def test_process_planet_data_with_unexpected_type(self):
         from lifesearch.lifesearch_main import process_planet_data
         weights_config = {"habitability": {}, "phi": {}}
-        result = process_planet_data("Weird", [1,2,3], weights_config)  # unexpected list
+        result = process_planet_data("Weird", [1, 2, 3], weights_config)  # unexpected list
         assert isinstance(result["planet_data_dict"], dict)
 
     def test_process_planet_data_missing_pl_name(self):

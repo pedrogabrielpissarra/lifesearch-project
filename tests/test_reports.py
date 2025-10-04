@@ -67,6 +67,7 @@ def test_format_float_field_special_cases():
     assert reports.format_float_field("") == "N/A"
     assert reports.format_float_field("   ") == "N/A"
 
+
 def test_format_float_field_valid_and_invalid():
     assert reports.format_float_field(3.14159) == "3.14"
     assert reports.format_float_field("42") == "42.00"
@@ -126,6 +127,7 @@ def test_to_float_or_none_cases():
     assert reports.to_float_or_none(3.14) == 3.14
     assert reports.to_float_or_none("42") == 42.0
 
+
 # ---------------------------
 # Enrich
 # ---------------------------
@@ -149,14 +151,6 @@ def test_enrich_atmosphere_star_params_invalid(caplog):
     assert "Unable to calculate temperature" in caplog.text
 
 
-def test_enrich_atmosphere_star_params_invalid(caplog):
-    caplog.set_level("WARNING")
-    data = {"pl_name": "X2", "st_teff": "bad", "st_rad": "bad", "pl_orbsmax": "bad"}
-    result = reports.enrich_atmosphere_water_magnetic_moons(data, "Superterran")
-    assert result["atmosphere_potential_score"] in (20, 90, 50)
-    assert "Could not convert stellar parameters" in caplog.text
-    assert "Unable to calculate temperature" in caplog.text
-
 def test_enrich_atmosphere_temperature_ranges():
     base = {"pl_name": "EarthLike", "pl_eqt": 288, "pl_masse": 1}
     r1 = reports.enrich_atmosphere_water_magnetic_moons(base, "Terran")
@@ -170,6 +164,7 @@ def test_enrich_atmosphere_temperature_ranges():
     r3 = reports.enrich_atmosphere_water_magnetic_moons(base, "Terran")
     assert r3["atmosphere_potential_desc"] == "Unlikely"
 
+
 def test_enrich_atmosphere_magnetic_and_moons():
     data = {"pl_name": "X4", "pl_eqt": 288, "pl_masse": 2, "st_spectype": "K"}
     r = reports.enrich_atmosphere_water_magnetic_moons(data, "Superterran")
@@ -179,10 +174,12 @@ def test_enrich_atmosphere_magnetic_and_moons():
     r2 = reports.enrich_atmosphere_water_magnetic_moons({"pl_name": "X5"}, "Jovian")
     assert r2["presence_of_moons_desc"] == "Unlikely"
 
+
 def test_enrich_atmosphere_star_type_M():
     data = {"pl_name": "X6", "pl_masse": None, "st_spectype": "M"}
     r = reports.enrich_atmosphere_water_magnetic_moons(data, "Unknown")
     assert r["magnetic_activity_score"] == 40
+
 
 def test_enrich_atmosphere_star_params_invalid_all_none(caplog):
     caplog.set_level("WARNING")
@@ -200,12 +197,14 @@ def test_enrich_atmosphere_star_params_invalid_all_none(caplog):
     assert "Could not convert stellar parameters" in caplog.text
     assert "Unable to calculate temperature" in caplog.text
 
+
 def test_enrich_atmosphere_temperature_unlikely_range():
     data = {"pl_name": "X8", "pl_eqt": 100, "pl_masse": 1}
     result = reports.enrich_atmosphere_water_magnetic_moons(data, "Terran")
     # Should fall into the else branch → Unlikely
     assert result["atmosphere_potential_score"] == 20
     assert result["atmosphere_potential_desc"] == "Unlikely"
+
 
 # ---------------------------
 # get_score_info
@@ -215,10 +214,12 @@ def test_get_score_info_non_dict():
     result = reports.get_score_info("notadict", "ESI")
     assert result["score"] == 0.0 and result["color"] == "#808080"
 
+
 def test_get_score_info_with_dict_field():
     scores = {"ESI": {"score": 88, "color": "#123456", "text": "Good"}}
     r = reports.get_score_info(scores, "ESI")
     assert r["score"] == 88 and r["color"] == "#123456" and r["text"] == "Good"
+
 
 def test_get_score_info_invalid_tuple(caplog):
     caplog.set_level("DEBUG")
@@ -227,13 +228,13 @@ def test_get_score_info_invalid_tuple(caplog):
     assert r["score"] == 0.0
     assert "not a valid number" in caplog.text or "Invalid or missing" in caplog.text
 
+
 def test_get_score_info_valid_tuple_with_color_and_text():
     scores = {"ESI": (75.0, "#FF0000", "Custom")}
     r = reports.get_score_info(scores, "ESI")
     assert r["score"] == 75.0
     assert r["color"] == "#FF0000"
     assert r["text"] == "Custom"
-
 
 
 # ---------------------------
@@ -246,17 +247,20 @@ def test_plot_habitable_zone_valid(tmp_output_dir):
     result = reports.plot_habitable_zone(planet_data, star_data, None, tmp_output_dir, "kepler22b")
     assert result.endswith("_hz.png")
 
+
 def test_plot_habitable_zone_invalid_data(tmp_output_dir):
     planet_data = {"pl_name": "Kepler-22 b"}  # falta pl_orbsmax
     star_data = {"st_lum": 1.0}
     result = reports.plot_habitable_zone(planet_data, star_data, None, tmp_output_dir, "kepler22b")
     assert result.endswith("_hz.png")
 
+
 def test_plot_habitable_zone_with_stellar_luminosity(tmp_output_dir):
     planet_data = {"pl_name": "Kepler-22 b", "pl_orbsmax": "1.5"}
     star_data = {"st_lum": 0.0}
     result = reports.plot_habitable_zone(planet_data, star_data, None, tmp_output_dir, "kepler22b")
     assert result.endswith("_hz.png")
+
 
 def test_plot_habitable_zone_invalid_st_lum_and_orbsmax(tmp_output_dir, caplog):
     planet_data = {"pl_name": "Kepler-22 b", "pl_orbsmax": "bad"}
@@ -266,6 +270,7 @@ def test_plot_habitable_zone_invalid_st_lum_and_orbsmax(tmp_output_dir, caplog):
     assert result.endswith("_hz.png")
     assert "Orbital semi-major axis" in caplog.text
 
+
 def test_plot_habitable_zone_invalid_orbsmax_warning(tmp_output_dir, caplog):
     caplog.set_level("WARNING")
     planet_data = {"pl_name": "Kepler-22 b", "pl_orbsmax": "abc"}  # inválido
@@ -274,11 +279,13 @@ def test_plot_habitable_zone_invalid_orbsmax_warning(tmp_output_dir, caplog):
     assert result.endswith("_hz.png")
     assert "Orbital semi-major axis" in caplog.text
 
+
 def test_plot_habitable_zone_no_values_sets_default_xlim(tmp_output_dir):
     planet_data = {"pl_name": "Kepler-22 b"}
     star_data = {}
     result = reports.plot_habitable_zone(planet_data, star_data, (None, None, None, None, None), tmp_output_dir, "kepler22b")
     assert result.endswith("_hz.png")
+
 
 def test_plot_habitable_zone_invalid_orbsmax_triggers_warning(tmp_output_dir, caplog):
     caplog.set_level("WARNING")
@@ -287,7 +294,6 @@ def test_plot_habitable_zone_invalid_orbsmax_triggers_warning(tmp_output_dir, ca
     result = reports.plot_habitable_zone(planet_data, star_data, None, tmp_output_dir, "kepler22b")
     assert result.endswith("_hz.png")
     assert "Orbital semi-major axis" in caplog.text
-
 
 
 # ---------------------------
@@ -299,14 +305,17 @@ def test_plot_scores_comparison_valid(tmp_output_dir):
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result.endswith("_scores.png")
 
+
 def test_plot_scores_comparison_empty(tmp_output_dir):
     scores = {}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result is None
 
+
 def test_plot_scores_comparison_invalid_input(tmp_output_dir):
     result = reports.plot_scores_comparison(None, tmp_output_dir, "kepler22b")
     assert result is None
+
 
 def test_plot_scores_comparison_with_non_numeric_value(tmp_output_dir, caplog):
     caplog.set_level("DEBUG")
@@ -315,10 +324,12 @@ def test_plot_scores_comparison_with_non_numeric_value(tmp_output_dir, caplog):
     assert result is None
     assert "Could not convert score value" in caplog.text
 
+
 def test_plot_scores_comparison_multiple_scores(tmp_output_dir):
     scores = {"ESI": (85.0, "#00FF00"), "PHI": (60.0, "#FF0000")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result.endswith("_scores.png")
+
 
 def test_plot_scores_comparison_bar_labels(tmp_output_dir, caplog):
     scores = {"ESI": (85.0, "#00FF00")}
@@ -327,12 +338,14 @@ def test_plot_scores_comparison_bar_labels(tmp_output_dir, caplog):
     # ensure the file was created
     assert os.path.exists(os.path.join(tmp_output_dir, result))
 
+
 def test_plot_scores_comparison_loop_labels(tmp_output_dir, caplog):
     scores = {"ESI": (85.0, "#00FF00")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result.endswith("_scores.png")
     # Should call ax.text at least once
     assert os.path.exists(os.path.join(tmp_output_dir, result))
+
 
 def test_plot_scores_comparison_non_numeric_value(tmp_output_dir, caplog):
     caplog.set_level("WARNING")
@@ -342,6 +355,7 @@ def test_plot_scores_comparison_non_numeric_value(tmp_output_dir, caplog):
     assert result is None
     # Correct message should be logged
     assert "No valid numeric scores to plot" in caplog.text
+
 
 def test_plot_scores_comparison_labels_called(tmp_output_dir, monkeypatch):
     called = {}
@@ -357,6 +371,7 @@ def test_plot_scores_comparison_labels_called(tmp_output_dir, monkeypatch):
     assert result.endswith("_scores.png")
     assert "text" in called  # confirms that ax.text and labels were called
 
+
 def test_plot_habitable_zone_orbsmax_invalid(tmp_output_dir, caplog):
     caplog.set_level("WARNING")
     planet_data = {"pl_name": "Kepler-22 b", "pl_orbsmax": "not-a-number"}
@@ -365,12 +380,14 @@ def test_plot_habitable_zone_orbsmax_invalid(tmp_output_dir, caplog):
     assert result.endswith("_hz.png")
     assert "Orbital semi-major axis" in caplog.text
 
+
 def test_plot_scores_comparison_with_label_loop(tmp_output_dir):
     scores = {"ESI": (42.0, "#123456")}
     result = reports.plot_scores_comparison(scores, tmp_output_dir, "kepler22b")
     assert result.endswith("_scores.png")
     # ensure the file was created
     assert os.path.exists(os.path.join(tmp_output_dir, result))
+
 
 # ---------------------------
 # _prepare_data_for_aggregated_reports
@@ -431,6 +448,7 @@ def test_prepare_data_no_components_for_habitability(tmp_output_dir):
     # Should be effectively zero (very close to 0)
     assert score < 1e-5
 
+
 def test_prepare_data_invalid_sy_dist(tmp_output_dir, caplog):
     caplog.set_level("WARNING")
     data = {"planet_data_dict": {"pl_name": "X4", "sy_dist": "bad"}}
@@ -458,6 +476,7 @@ def test_prepare_data_empty_processed_list(tmp_output_dir, caplog):
     assert result == []
     assert "No data processed for summary/combined report" in caplog.text
 
+
 # ---------------------------
 # generate_planet_report_html
 # ---------------------------
@@ -472,6 +491,7 @@ def test_generate_planet_report_html(tmp_output_dir, template_env):
     assert path.endswith("kepler22b_report.html")
     assert os.path.exists(path)
 
+
 def test_generate_planet_report_with_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
     scores = {"ESI": (85.0, "#00FF00")}
@@ -483,6 +503,7 @@ def test_generate_planet_report_with_scores(tmp_output_dir, template_env):
     with open(path, encoding="utf-8") as f:
         content = f.read()
     assert "ESI" in content
+
 
 def test_generate_planet_report_with_sephi_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
@@ -496,6 +517,7 @@ def test_generate_planet_report_with_sephi_scores(tmp_output_dir, template_env):
         content = f.read()
     assert "SEPHI" in content
 
+
 def test_generate_planet_report_exception(tmp_output_dir):
     planet = {"pl_name": "Kepler-22 b"}
     scores = {}
@@ -505,6 +527,7 @@ def test_generate_planet_report_exception(tmp_output_dir):
         planet, scores, sephi_scores, {}, bad_env, tmp_output_dir, "kepler22b"
     )
     assert result is None
+
 
 def test_generate_planet_report_with_transformed_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
@@ -518,6 +541,7 @@ def test_generate_planet_report_with_transformed_scores(tmp_output_dir, template
     # Should appear the value converted to list
     assert "85.0" in content or "ESI" in content
 
+
 def test_generate_planet_report_with_transformed_sephi_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
     sephi_scores = {"SEPHI": (70.0, "#FF0000")}  # valid
@@ -530,6 +554,7 @@ def test_generate_planet_report_with_transformed_sephi_scores(tmp_output_dir, te
     # should bring SEPHI with color
     assert "70.0" in content or "SEPHI" in content
 
+
 def test_generate_planet_report_html_with_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
     scores = {"ESI": (85.0, "#00FF00")}  # valid
@@ -540,6 +565,7 @@ def test_generate_planet_report_html_with_scores(tmp_output_dir, template_env):
     with open(path, encoding="utf-8") as f:
         content = f.read()
     assert "85.0" in content or "ESI" in content
+
 
 def test_generate_planet_report_html_with_sephi_scores(tmp_output_dir, template_env):
     planet = {"pl_name": "Kepler-22 b"}
@@ -562,6 +588,7 @@ def test_generate_summary_report_html(tmp_output_dir, template_env):
     path = reports.generate_summary_report_html(planets, template_env, tmp_output_dir)
     assert path.endswith("summary_report.html")
     assert os.path.exists(path)
+
 
 def test_generate_summary_report_html_success(tmp_output_dir, template_env):
     data = [{"planet_data_dict": {"pl_name": "PlanetX"}}]
@@ -594,11 +621,13 @@ def test_generate_summary_report_html_template_error(tmp_output_dir):
 # generate_combined_report_html
 # ---------------------------
 
+
 def test_generate_combined_report_html(tmp_output_dir, template_env):
     planets = [{"planet_data_dict": {"pl_name": "Kepler-22 b"}}]
     path = reports.generate_combined_report_html(planets, template_env, tmp_output_dir)
     assert path.endswith("combined_report.html")
     assert os.path.exists(path)
+
 
 def test_generate_combined_report_html_success(tmp_output_dir, template_env):
     data = [{"planet_data_dict": {"pl_name": "PlanetY"}}]
@@ -608,11 +637,13 @@ def test_generate_combined_report_html_success(tmp_output_dir, template_env):
         content = f.read()
     assert "Combined:" in content
 
+
 def test_generate_combined_report_html_no_data(tmp_output_dir, template_env, caplog):
     caplog.set_level("WARNING")
     result = reports.generate_combined_report_html([], template_env, tmp_output_dir)
     assert result.endswith("combined_report.html")
     assert "No processed data available for combined report" in caplog.text
+
 
 def test_generate_combined_report_html_template_error(tmp_output_dir):
     from jinja2 import Environment, DictLoader

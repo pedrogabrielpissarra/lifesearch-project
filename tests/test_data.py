@@ -13,6 +13,7 @@ from lifesearch.data import (
     merge_data_sources, CACHE_DIR
 )
 
+
 class TestData(unittest.TestCase):
     def setUp(self):
         """It should set up a temporary cache directory for tests"""
@@ -98,7 +99,7 @@ class TestData(unittest.TestCase):
         with self.assertLogs("lifesearch.data", level="WARNING") as cm:
             result = read_from_cache(slug)
             self.assertIsNone(result)
-        self.assertTrue(any("no timestamp" in m for m in cm.output))  
+        self.assertTrue(any("no timestamp" in m for m in cm.output))
 
     def test_read_from_cache_generic_exception(self):
         """It should handle generic exceptions gracefully"""

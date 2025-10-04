@@ -1324,4 +1324,3 @@ if __name__ == "__main__":
         logger.info(f"Test Combined report generated at: {combined_report_path}")
 
     logger.info("Test script finished. Check \"test_reports_output\" directory.")
-

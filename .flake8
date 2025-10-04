@@ -1,7 +1,7 @@
 [flake8]
 max-line-length = 100
 exclude = .git,__pycache__,env,venv,*.egg,build,dist
-ignore = E203,E501,W503,E701,E702
+ignore = E203,E501,W503,E701,E702,E704
 per-file-ignores =
     __init__.py:F401
 paths = lifesearch, app
