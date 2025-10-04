@@ -3,10 +3,10 @@ kind: PersistentVolumeClaim
 metadata:
   name: pipelinerun-pvc
 spec:
-  storageClassName: lifesearch-nfs
+  storageClassName: skills-network-learner
   resources:
     requests:
       storage:  1Gi
   volumeMode: Filesystem
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce

@@ -10,6 +10,7 @@ spec:
     - name: repo-url
     - name: branch
       default: main
+    - name: app-name     
   tasks:
     - name: init
       workspaces:
@@ -42,7 +43,7 @@ spec:
       - name: image
         value: "python:3.9-slim"
       - name: args
-        value: ["--count","--max-line-length=127","--statistics"]
+        value: "--count --max-line-length=127 --statistics"
       runAfter:
         - clone
 
@@ -77,9 +78,10 @@ spec:
 
     - name: deploy
       taskRef:
-        name: echo
+        name: openshift-client
+        kind: ClusterTask
       params:
-      - name: message
-        value: "Deploying $(params.branch) branch of $(params.repo-url) ..."
+        - name: SCRIPT
+          value: "oc create deploy $(params.app-name) --image=$(params.build-image)"
       runAfter:
         - build

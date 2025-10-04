@@ -1,0 +1,23 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: flake8
+spec:
+  params:
+    - name: image
+      type: string
+    - name: args
+      type: string
+  workspaces:
+    - name: source
+  steps:
+    - name: run-flake8
+      image: $(params.image)
+      workingDir: $(workspaces.source.path)
+      command:
+        - sh
+      args:
+        - -c
+        - |
+          pip install flake8
+          flake8 $(params.args)

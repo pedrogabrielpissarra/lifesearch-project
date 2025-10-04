@@ -1,0 +1,17 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: pytest
+spec:
+  params:
+    - name: args
+      type: string
+  workspaces:
+    - name: source
+  steps:
+    - name: run-pytest
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        pip install pytest pytest-cov
+        pytest $(params.args)
