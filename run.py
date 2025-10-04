@@ -20,6 +20,8 @@ logging.basicConfig(level=logging.DEBUG,
 
 logger = logging.getLogger(__name__)
 
+app = create_app() # to run guicorn correctly
+
 if __name__ == "__main__":
     logger.info("Starting LifeSearch Flask application...")
     app = create_app()  # Create app instance
