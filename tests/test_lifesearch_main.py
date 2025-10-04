@@ -139,7 +139,6 @@ class TestCalculationsESI:
         result = calculate_esi_score(planet_data, weights)
         assert result == (0.0, "#F44336")  # should return 0 and red color for invalid data
 
-
     def test_calculate_esi_score_no_valid_components(self):
         from lifesearch.lifesearch_main import calculate_esi_score
         planet_data = {"pl_rade": None, "pl_dens": None, "pl_eqt": None}
