@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: lifesearch
-          image: <seu-registry>/lifesearch:latest   # substitua pelo path correto
+          image: image-registry.openshift-image-registry.svc:5000/sn-labs-pedropissarr/tekton-lab:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
