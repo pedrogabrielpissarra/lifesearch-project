@@ -6,12 +6,18 @@ spec:
   params:
     - name: args
       type: string
+      default: "--color=yes --cov=lifesearch --cov-report=term-missing"
   workspaces:
     - name: source
   steps:
     - name: run-pytest
-      image: python:3.9-slim
+      image: python:3.11-slim
       workingDir: $(workspaces.source.path)
       script: |
-        pip install pytest pytest-cov
+        set -e
+        echo "🔧 Installing project dependencies..."
+        pip install --upgrade pip
+        pip install -r requirements-dev.txt
+
+        echo "Running pytest with args: $(params.args)"
         pytest $(params.args)
