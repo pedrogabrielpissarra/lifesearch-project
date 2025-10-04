@@ -6,8 +6,8 @@ import logging
 from jinja2 import Environment, FileSystemLoader, select_autoescape  # Import select_autoescape
 import json  # For logging context and SAVING DATA
 import traceback  # For explicit error printing
-import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib
 
 matplotlib.use("Agg")  # Set non-interactive backend for matplotlib
 
@@ -1324,3 +1324,4 @@ if __name__ == "__main__":
         logger.info(f"Test Combined report generated at: {combined_report_path}")
 
     logger.info("Test script finished. Check \"test_reports_output\" directory.")
+
