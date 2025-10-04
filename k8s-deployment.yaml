@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lifesearch
+  labels:
+    app: lifesearch
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lifesearch
+  template:
+    metadata:
+      labels:
+        app: lifesearch
+    spec:
+      containers:
+        - name: lifesearch
+          image: <seu-registry>/lifesearch:latest   # substitua pelo path correto
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: FLASK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lifesearch-secrets
+                  key: flask-secret
+          command: ["gunicorn"]
+          args: ["--bind", "0.0.0.0:8000", "lifesearch:create_app()"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: cache-volume
+              mountPath: /home/ubuntu/lifesearch/cache
+            - name: results-volume
+              mountPath: /home/ubuntu/lifesearch_results
+            - name: session-volume
+              mountPath: /home/ubuntu/flask_session
+      volumes:
+        - name: cache-volume
+          persistentVolumeClaim:
+            claimName: lifesearch-pvc
+        - name: results-volume
+          persistentVolumeClaim:
+            claimName: lifesearch-pvc
+        - name: session-volume
+          persistentVolumeClaim:
+            claimName: lifesearch-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lifesearch
+  labels:
+    app: lifesearch
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/metrics"
+    prometheus.io/port: "8000"
+spec:
+  selector:
+    app: lifesearch
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

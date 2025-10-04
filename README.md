@@ -9,8 +9,7 @@ It integrates NASA Exoplanet Archive data with the HWC and HZGallery catalogs, a
 .
 ├── CONTRIBUTING.md              # Guidelines for contributing to the project
 ├── LICENSE                      # Project license information
-├── README.md                    # Original README file (Portuguese)
-├── README_en.md                 # This README file (English)
+├── README.md                    # This README file
 ├── app/                         # Flask application source code
 │   ├── __init__.py            # Initializes the Flask app, registers blueprints
 │   ├── forms.py               # Defines WTForms for user input

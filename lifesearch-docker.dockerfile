@@ -1,32 +1,33 @@
-# Use uma imagem oficial do Python como base
+# Use official Python runtime as a parent image
 FROM python:3.11-slim
 
 
-# Defina o diretório de trabalho dentro do contêiner
+# Working directory
 WORKDIR /app
 
-# Copie o arquivo de dependências primeiro para aproveitar o cache do Docker
+# Copy both requirements files first (to leverage Docker cache)
 COPY requirements.txt requirements.txt
+COPY requirements-dev.txt requirements-dev.txt
 
-# Instale as dependências
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -r requirements-dev.txt
 
-# Copie o restante do código da aplicação para o diretório de trabalho
+# Copy the current directory contents into the container at /app
 COPY . .
 
-# Exponha a porta em que o Flask (ou Gunicorn) estará rodando
-# O servidor de desenvolvimento do Flask geralmente roda na porta 5000
+# Expose the port the app runs on Flask or Gunicorn
+# development server default port is 5000
 EXPOSE 5000
 
-# Defina variáveis de ambiente (opcional, mas bom para Flask)
+# Define environment variables
 ENV FLASK_APP=run.py
 ENV FLASK_RUN_HOST=0.0.0.0
-# Para produção, você pode querer definir FLASK_ENV=production
+# To production, you might want to set FLASK_ENV=production
 
-# Comando para rodar a aplicação
-# Para desenvolvimento/simplicidade, você pode usar o servidor do Flask:
+# Command to run the application
+# To develop with Flask's built-in server (not for production):
 CMD ["flask", "run"]
 
-# Para um ambiente de produção, é altamente recomendável usar um servidor WSGI como Gunicorn:
-# CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "run:app"]
-# Se for usar Gunicorn, adicione 'gunicorn' ao seu requirements.txt
+# To production, consider using Gunicorn:
+# CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "run:app"] # Uncomment this line for production
