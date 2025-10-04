@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: lifesearch
-          image: image-registry.openshift-image-registry.svc:5000/sn-labs-pedropissarr/tekton-lab:latest
+          image: image-registry.openshift-image-registry.svc:5000/sn-labs-pedropissarr/lifesearch:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
@@ -26,8 +26,6 @@ spec:
                 secretKeyRef:
                   name: lifesearch-secrets
                   key: flask-secret
-          command: ["gunicorn"]
-          args: ["--bind", "0.0.0.0:8000", "lifesearch:create_app()"]
           resources:
             requests:
               cpu: "250m"
@@ -52,22 +50,3 @@ spec:
         - name: session-volume
           persistentVolumeClaim:
             claimName: lifesearch-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: lifesearch
-  labels:
-    app: lifesearch
-  annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/path: "/metrics"
-    prometheus.io/port: "8000"
-spec:
-  selector:
-    app: lifesearch
-  ports:
-    - name: http
-      port: 8000
-      targetPort: 8000
-  type: ClusterIP
