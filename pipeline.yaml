@@ -55,7 +55,7 @@ spec:
         name: pytest
       params:
       - name: args
-        value: "--spec --color=yes --cov=lifesearch --cov-report=term-missing"
+        value: "--color=yes --cov=lifesearch --cov-report=term-missing"
       runAfter:
         - lint
 
