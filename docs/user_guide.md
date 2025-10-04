@@ -7,7 +7,7 @@ Welcome to the LifeSearch Web Application! This guide will help you set up, run,
 The project is organized as follows:
 
 ```
-/lifesearch/
+/lifesearch-project/
 ├── app/                         # Contains the Flask application code
 │   ├── __init__.py              # Initializes the Flask app, configures, and registers blueprints/routes
 │   ├── forms.py                 # Defines WTForms classes (e.g., PlanetSearchForm, HabitabilityWeightsForm)
@@ -66,22 +66,22 @@ Follow these steps to set up and run the LifeSearch Web Application and its docu
 - Clone the repository using Git:
   ```bash
   git clone <repository-url>
-  cd lifesearch
+  cd lifesearch-project
   ```
 - Alternatively, download and extract the project ZIP file to your desired directory.
 
 ### 2.3. Create and Activate a Virtual Environment
 Using a virtual environment is recommended to isolate dependencies:
 ```bash
-python -m venv venv
+python -m venv lifesearch_env
 ```
 - On Linux/macOS:
   ```bash
-  source venv/bin/activate
+  source lifesearch_env/bin/activate
   ```
 - On Windows:
   ```bash
-  venv\Scripts\activate
+  lifesearch_env\Scripts\activate
   ```
 
 ### 2.4. Install Dependencies
@@ -112,16 +112,16 @@ The application will be accessible at `http://127.0.0.1:5000/` in your web brows
 ### 2.7. Run the Documentation (Optional)
 To view the documentation locally using MkDocs:
 ```bash
-mkdocs serve
+mkdocs serve -a 127.0.0.1:8001
 ```
-Access the documentation at `http://127.0.0.1:8000/`. The `formulas_lifesearch.md` page will render LaTeX equations using MathJax.
+Access the documentation at `http://127.0.0.1:8001/`. The `formulas_lifesearch.md` page will render LaTeX equations using MathJax.
 
 ### 2.8. Deploy to Production (Optional)
 For production deployment:
 - Use a WSGI server like Gunicorn:
   ```bash
   pip install gunicorn
-  gunicorn -w 4 -b 0.0.0.0:5000 app:app
+  gunicorn -w 4 -b 0.0.0.0:8000 app:app
   ```
 - Configure a reverse proxy (e.g., Nginx) and secure the application with HTTPS.
 - For documentation, deploy to Read the Docs by linking your repository and configuring `readthedocs.yml`.
@@ -141,14 +141,18 @@ The home page is the starting point for exoplanet analysis.
   - **Example**: Enter `Kepler-477 b` to analyze its habitability.
 
 - **Parameter Overrides (Optional)**:
-  - Use the "Parameter Overrides" field to specify custom values for planet or star parameters, useful for testing hypothetical scenarios or updating data.
-  - **Syntax**: `Planet Name: param1=value1, param2=value2; Planet Name 2: param1=value1`
-    - Separate each planet’s overrides with a semicolon (`;`).
-    - Use the exact planet name, followed by a colon (`:`).
-    - List key-value pairs separated by commas (`,`).
-    - Example: `Kepler-477 b: pl_rade=2.0, st_age=3.0; TRAPPIST-1 e: pl_masse=0.8`
-  - **Common Parameters**: Radius (`pl_rade` in Earth radii), mass (`pl_masse` in Earth masses), equilibrium temperature (`pl_eqt` in K), stellar age (`st_age` in Gyr), eccentricity (`pl_orbeccen`). Refer to NASA Exoplanet Archive column names.
-  - **Note**: Overrides take precedence over database or catalog values.
+- Click **Configure Weights** to adjust the importance of various habitability metrics:  
+  - **ESI** (Earth Similarity Index)  
+  - **PHI** (Planetary Habitability Index)  
+  - **SPH** (Standard Primary Habitability)  
+  - **SEPHI** (Standard Exoplanet Habitability Index)  
+
+**Default values:**  
+  - General habitability factors → `1.0`  
+  - PHI factors → `0.25`
+
+### 4. (Optional) Override Planetary Parameters Orbital, Physical and Star Factors ESI and PHI values
+You can input custom values for planets using the **Parameters** field.  
 
 - **Generating Reports**:
   - Click the "Generate Reports" button to process the input.

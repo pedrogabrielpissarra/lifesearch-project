@@ -1,6 +1,7 @@
 import os
 from flask import Flask
 from lifesearch.data import ensure_cache_ready
+from prometheus_flask_exporter import PrometheusMetrics
 
 
 def create_app():
@@ -31,5 +32,8 @@ def create_app():
     # Import and register routes
     from .routes import routes_bp
     app.register_blueprint(routes_bp)
+
+    # Prometheus metrics
+    PrometheusMetrics(app)
 
     return app

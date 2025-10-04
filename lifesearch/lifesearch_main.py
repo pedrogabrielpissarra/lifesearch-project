@@ -311,7 +311,7 @@ def calculate_esi_score(planet_data, weights):
                     similarity_component = 0.0
 
                 # Apply weight and normalize, direct multiplication by weight
-                scaled_component = similarity_component * (weight_val / MAX_WEIGHT)  # Aqui usamos MAX_WEIGHT
+                scaled_component = similarity_component * (weight_val / MAX_WEIGHT)  # using MAX_WEIGHT
 
                 esi_components.append(scaled_component)
                 num_params += 1

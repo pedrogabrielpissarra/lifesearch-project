@@ -12,7 +12,7 @@ Pillow==10.4.0
 kiwisolver==1.4.7
 
 # HTTP requests
-requests==2.32.3
+requests>=2.32.3
 
 # Template rendering
 Jinja2==3.1.4
@@ -20,6 +20,9 @@ Jinja2==3.1.4
 # Configuration and environment
 python-decouple==3.8
 python-dotenv==1.0.1
+
+# Prometheus monitoring
+prometheus-flask-exporter==0.23.0
 
 # Optional: Production server
 gunicorn==23.0.0

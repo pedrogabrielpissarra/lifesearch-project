@@ -913,15 +913,15 @@ def planets_autocomplete():
         hwc_df = load_hwc_catalog(hwc_file_path)
 
         suggestions = []
-        #  Usar 'P_NAME' em vez de 'pl_name'
+        #  Use 'P_NAME' instead 'pl_name'
         if 'P_NAME' in hwc_df.columns:
-            #  Filtrar e selecionar da coluna 'P_NAME'
+            #  Filter and select column 'P_NAME'
             mask = hwc_df['P_NAME'].astype(str).str.lower().str.contains(term, na=False)
             matched_names = hwc_df.loc[mask, 'P_NAME'].unique()
 
             suggestions = [{'value': name} for name in matched_names]
         else:
-            #  Mensagem de log atualizada
+            #  Updated log message
             current_app.logger.warning("Column 'P_NAME' not found in HWC DataFrame for autocomplete.")
 
         return jsonify(suggestions[:20])

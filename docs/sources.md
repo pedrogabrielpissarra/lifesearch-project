@@ -5,7 +5,7 @@ This section documents the main data sources and scientific publications that we
 ## Exoplanet Catalogs and Databases
 
 *   **[Habitable Worlds Catalog (HWC) - PHL](https://phl.upr.edu/hwc)**
-    *   A catalog of potentially habitable exoplanets maintained by the Planetary Habitability Laboratory (PHL) at the University of Puerto Rico at Arecibo. Frequently referenced in development for data and classifications. (This information was particularly relevant around May 15, 2025, as per our previous discussions).
+    *   A catalog of potentially habitable exoplanets maintained by the Planetary Habitability Laboratory (PHL) at the University of Puerto Rico at Arecibo. Frequently referenced in development for data and classifications.
 
 *   **[NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/)**
     *   An online astronomical database and data service that collects and serves public data on exoplanets and their host stars. Primary data source for the LifeSearch application.

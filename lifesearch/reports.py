@@ -7,8 +7,9 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape  # Import se
 import json  # For logging context and SAVING DATA
 import traceback  # For explicit error printing
 import matplotlib
-matplotlib.use("Agg")  # Set non-interactive backend for matplotlib
 import matplotlib.pyplot as plt
+
+matplotlib.use("Agg")  # Set non-interactive backend for matplotlib
 
 logger = logging.getLogger(__name__)
 
