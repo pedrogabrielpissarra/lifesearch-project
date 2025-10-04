@@ -27,6 +27,6 @@ if __name__ == "__main__":
     app = create_app()  # Create app instance
 
     try:
-        app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=True)
+        app.run(host="0.0.0.0", port=8000, debug=True, use_reloader=True)  # Local dev change to 5000 if needed
     except Exception as e:
         logger.critical(f"Failed to start the Flask application: {e}", exc_info=True)
