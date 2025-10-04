@@ -10,32 +10,63 @@ import numpy as np
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# --- Production (container) ---
-CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
-CACHE_DIR = "/tmp/lifesearch_cache"
+# -----------------------------------------------------------------------------
+# Cache configuration
+# -----------------------------------------------------------------------------
+# The cache directory is dynamically selected based on the environment.
+# - In local development: uses /home/ubuntu/lifesearch/cache if available.
+# - In production (e.g., OpenShift, Docker): defaults to /tmp/lifesearch_cache,
+#   which always has write permissions for non-root containers.
+#
+# This prevents "Permission denied" errors when running inside restricted
+# container environments.
+# -----------------------------------------------------------------------------
 
-os.makedirs(CACHE_DIR, exist_ok=True)
+if os.path.exists("/home/ubuntu/lifesearch/cache"):
+    CACHE_DIR = "/home/ubuntu/lifesearch/cache"
+else:
+    CACHE_DIR = "/tmp/lifesearch_cache"
+
+CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
 # Cache configuration -- development path, change as needed ---
 # CACHE_DIR = "/home/ubuntu/lifesearch/cache"
 # CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
 
 
-def ensure_dir(directory):
-    """Ensures that a directory exists, creating it if necessary.
-
-    Logs the creation of the directory if it did not already exist.
+def ensure_dir(directory: str):
+    """
+    Ensures that a directory exists, creating it if necessary.
 
     Args:
-        directory (str): The path to the directory to check/create.
+        directory (str): Path of the directory to check or create.
     """
     if not os.path.exists(directory):
-        os.makedirs(directory)
+        os.makedirs(directory, exist_ok=True)
         logger.info(f"Created directory: {directory}")
 
 
 def ensure_cache_ready():
-    """Create cache directory on app startup."""
+    """
+    Ensures that the cache directory is ready before use.
+    This function is called during Flask app initialization.
+    """
     ensure_dir(CACHE_DIR)
+# def ensure_dir(directory):
+#     """Ensures that a directory exists, creating it if necessary.
+
+#     Logs the creation of the directory if it did not already exist.
+
+#     Args:
+#         directory (str): The path to the directory to check/create.
+#     """
+#     if not os.path.exists(directory):
+#         os.makedirs(directory)
+#         logger.info(f"Created directory: {directory}")
+
+
+# def ensure_cache_ready():
+#     """Create cache directory on app startup."""
+#     ensure_dir(CACHE_DIR)
 
 
 # --- NORMALIZE NAMES FOR COMPARISON ---
