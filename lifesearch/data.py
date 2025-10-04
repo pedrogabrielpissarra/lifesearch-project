@@ -1,8 +1,8 @@
+import os
 import pandas as pd
 import requests
 import logging
 from io import StringIO
-import os
 import json
 from datetime import datetime, timedelta
 import numpy as np
@@ -10,22 +10,21 @@ import numpy as np
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# -----------------------------------------------------------------------------
-# Cache configuration
-# -----------------------------------------------------------------------------
-# The cache directory is dynamically selected based on the environment.
-# - In local development: uses /home/ubuntu/lifesearch/cache if available.
-# - In production (e.g., OpenShift, Docker): defaults to /tmp/lifesearch_cache,
-#   which always has write permissions for non-root containers.
-#
-# This prevents "Permission denied" errors when running inside restricted
-# container environments.
-# -----------------------------------------------------------------------------
+# Detect if running inside a container (no /home/ubuntu usually)
+IN_CONTAINER = os.path.exists("/.dockerenv") or os.environ.get("KUBERNETES_SERVICE_HOST")
 
-if os.path.exists("/home/ubuntu/lifesearch/cache"):
-    CACHE_DIR = "/home/ubuntu/lifesearch/cache"
+# Choose writable paths for cache depending on environment
+if IN_CONTAINER:
+    BASE_DIR = "/tmp/lifesearch"
 else:
-    CACHE_DIR = "/tmp/lifesearch_cache"
+    BASE_DIR = "/home/ubuntu/lifesearch"
+
+CACHE_DIR = os.path.join(BASE_DIR, "cache")
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+SESSION_DIR = os.path.join(BASE_DIR, "session")
+
+for directory in [CACHE_DIR, RESULTS_DIR, SESSION_DIR]:
+    os.makedirs(directory, exist_ok=True)
 
 CACHE_EXPIRATION_HOURS = 24  # Cache entries expire after 24 hours
 # Cache configuration -- development path, change as needed ---
