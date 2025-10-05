@@ -78,10 +78,15 @@ spec:
 
     - name: deploy
       taskRef:
-        name: openshift-client
         kind: ClusterTask
+        name: openshift-client
+      runAfter: ["build"]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
       params:
         - name: SCRIPT
-          value: "oc create deploy $(params.app-name) --image=$(params.build-image)"
-      runAfter:
-        - build
+          value: |
+            echo "Applying deployment manifest..."
+            oc apply -f k8s_deploy.yaml
+            echo "Deployment applied successfully!"
