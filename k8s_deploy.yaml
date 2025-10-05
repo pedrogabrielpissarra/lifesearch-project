@@ -5,6 +5,7 @@ metadata:
   labels:
     app: lifesearch
 spec:
+  # Run two replicas of the LifeSearch app
   replicas: 2
   selector:
     matchLabels:
@@ -18,8 +19,12 @@ spec:
         - name: lifesearch
           image: image-registry.openshift-image-registry.svc:5000/sn-labs-pedropissarr/lifesearch:latest
           imagePullPolicy: IfNotPresent
+
+          # Gunicorn / Flask port
           ports:
             - containerPort: 8000
+
+          # Environment variables for Flask and volume directories
           env:
             - name: FLASK_SECRET_KEY
               valueFrom:
@@ -32,6 +37,8 @@ spec:
               value: /tmp/lifesearch/results
             - name: LIFESEARCH_SESSION_DIR
               value: /tmp/lifesearch/session
+
+          # CPU and memory limits
           resources:
             requests:
               cpu: "250m"
@@ -39,6 +46,8 @@ spec:
             limits:
               cpu: "500m"
               memory: "1Gi"
+
+          # Mount persistent storage directories
           volumeMounts:
             - name: cache-volume
               mountPath: /tmp/lifesearch/cache
@@ -46,6 +55,8 @@ spec:
               mountPath: /tmp/lifesearch/results
             - name: session-volume
               mountPath: /tmp/lifesearch/session
+
+      # Define persistent volumes for cache, results, and session
       volumes:
         - name: cache-volume
           persistentVolumeClaim:
