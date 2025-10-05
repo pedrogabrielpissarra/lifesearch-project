@@ -3,6 +3,7 @@ from unittest.mock import patch
 from lifesearch.data import load_hwc_catalog, load_hzgallery_catalog
 from app.routes import prepare_planet_dataset
 
+
 @pytest.fixture
 def mock_catalogs(tmp_path):
     hwc_path = tmp_path / "hwc.csv"
@@ -10,6 +11,7 @@ def mock_catalogs(tmp_path):
     hwc_path.write_text("pl_name,stellar_type\nKepler-22 b,G2V")
     hz_path.write_text("pl_name,hz_status\nKepler-22 b,In HZ")
     return str(hwc_path), str(hz_path)
+
 
 def test_prepare_planet_dataset_prefers_api(mock_catalogs):
     """Ensures API data is used when available."""
@@ -25,6 +27,7 @@ def test_prepare_planet_dataset_prefers_api(mock_catalogs):
     assert normalized.lower() == "kepler22b"
     assert "st_teff" in combined
     assert combined["st_teff"] == 5518
+
 
 def test_prepare_planet_dataset_fallback_if_api_missing(mock_catalogs):
     """Ensures fallback is used when API data is None."""
