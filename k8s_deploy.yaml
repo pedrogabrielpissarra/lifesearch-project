@@ -27,11 +27,11 @@ spec:
                   name: lifesearch-secrets
                   key: flask-secret
             - name: LIFESEARCH_CACHE_DIR
-              value: /tmp/lifesearch_cache
+              value: /tmp/lifesearch/cache
             - name: LIFESEARCH_RESULTS_DIR
-              value: /tmp/lifesearch_results
+              value: /tmp/lifesearch/results
             - name: LIFESEARCH_SESSION_DIR
-              value: /tmp/flask_session
+              value: /tmp/lifesearch/session
           resources:
             requests:
               cpu: "250m"
@@ -41,11 +41,11 @@ spec:
               memory: "1Gi"
           volumeMounts:
             - name: cache-volume
-              mountPath: /home/ubuntu/lifesearch/cache
+              mountPath: /tmp/lifesearch/cache
             - name: results-volume
-              mountPath: /home/ubuntu/lifesearch_results
+              mountPath: /tmp/lifesearch/results
             - name: session-volume
-              mountPath: /home/ubuntu/flask_session
+              mountPath: /tmp/lifesearch/session
       volumes:
         - name: cache-volume
           persistentVolumeClaim:
@@ -56,3 +56,22 @@ spec:
         - name: session-volume
           persistentVolumeClaim:
             claimName: lifesearch-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lifesearch
+  labels:
+    app: lifesearch
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/metrics"
+    prometheus.io/port: "8000"
+spec:
+  selector:
+    app: lifesearch
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
