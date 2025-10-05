@@ -61,8 +61,10 @@ def replace_nan_with_none(obj):
     return obj
 
 
-def prepare_planet_dataset(planet_name, api_data, hwc_df, hz_gallery_df, logger):
+def prepare_planet_dataset(planet_name, api_data, hwc_df, hz_gallery_df, logger=None):
     """Prepare combined planet data even when the external API is unavailable."""
+    import logging
+    logger = logger or logging.getLogger(__name__)
 
     normalized_planet_name = None
 
@@ -77,19 +79,13 @@ def prepare_planet_dataset(planet_name, api_data, hwc_df, hz_gallery_df, logger)
         )
         normalized_planet_name = normalize_name(planet_name)
 
-    combined_data = merge_data_sources(
-        api_data,
-        hwc_df,
-        hz_gallery_df,
-        normalized_planet_name,
-    )
+    combined_data = merge_data_sources(api_data, hwc_df, hz_gallery_df, normalized_planet_name)
 
     if not combined_data:
         logger.warning("No combined data available for %s after attempting fallbacks.", planet_name)
         return None, None
 
     combined_data.setdefault("pl_name", planet_name)
-
     return normalized_planet_name, combined_data
 
 
